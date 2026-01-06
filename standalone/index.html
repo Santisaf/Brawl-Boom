@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brawl Boom - Standalone</title>
+    <link href="https://fonts.googleapis.com/css2?family=Stardos+Stencil:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        :root {
+            --color-black: #0F1210;
+            --color-beige: #CBBF9A;
+            --color-olive: #4F5D2F;
+        }
+
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--color-black) url('assets/start.png') no-repeat center center fixed;
+            background-size: cover;
+            font-family: 'Stardos Stencil', sans-serif;
+            color: var(--color-beige);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* TOP BAR */
+        #top-bar {
+            display: none;
+            width: 100%;
+            height: 50px;
+            background: rgba(15, 18, 16, 0.95);
+            border-bottom: 2px solid var(--color-olive);
+            padding: 5px 20px;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .player-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+        }
+
+        .player-info.right {
+            flex-direction: row-reverse;
+        }
+
+        .player-name {
+            font-family: 'Stardos Stencil', cursive;
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: var(--color-beige);
+            text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.8);
+            letter-spacing: 1px;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .trophy-icon {
+            color: #FFD700;
+            font-size: 1.2rem;
+        }
+
+        /* LOGIN OVERLAY */
+        #login-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 3000;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+        }
+
+        .login-box {
+            background: rgba(15, 18, 16, 0.95);
+            border: 2px solid var(--color-olive);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            width: 350px;
+        }
+
+        .login-box input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background: #222;
+            border: 1px solid var(--color-olive);
+            color: var(--color-beige);
+            font-family: 'Stardos Stencil';
+            font-size: 1rem;
+        }
+
+        .login-box button {
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .form-switch {
+            font-size: 0.9rem;
+            margin-top: 15px;
+            color: #888;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .error-msg {
+            color: #ff4444;
+            font-size: 0.9rem;
+            min-height: 20px;
+            margin-top: 5px;
+        }
+
+        /* LEADERBOARD OVERLAY */
+        #leaderboard-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 4000;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+        }
+
+        .leaderboard-box {
+            background: rgba(15, 18, 16, 0.98);
+            border: 3px solid var(--color-olive);
+            padding: 30px;
+            border-radius: 20px;
+            width: 450px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.9);
+            text-align: center;
+        }
+
+        .leaderboard-table {
+            width: 100%;
+            margin-top: 20px;
+            border-collapse: collapse;
+        }
+
+        .leaderboard-table th,
+        .leaderboard-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(79, 93, 47, 0.3);
+        }
+
+        .leaderboard-table th {
+            color: var(--color-olive);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+
+        .leaderboard-table tr:hover {
+            background: rgba(203, 191, 154, 0.05);
+        }
+
+        .rank-gold {
+            color: #FFD700;
+            font-weight: bold;
+        }
+
+        .rank-silver {
+            color: #C0C0C0;
+            font-weight: bold;
+        }
+
+        .rank-bronze {
+            color: #CD7F32;
+            font-weight: bold;
+        }
+
+        .hp-bar-container {
+            width: 150px;
+            height: 20px;
+            background: rgba(15, 18, 16, 0.8);
+            border-radius: 10px;
+            border: 2px solid var(--color-olive);
+            overflow: hidden;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.8);
+            display: flex;
+        }
+
+        .hp-bar-container.right-aligned {
+            justify-content: flex-end;
+        }
+
+        .hp-bar-fill {
+            height: 100%;
+            width: 100%;
+            transition: width 0.2s ease-out;
+            border-radius: 6px;
+        }
+
+        /* HP Bar Colors removed as they are now dynamic in JS */
+
+        .powerup-indicators {
+            display: flex;
+            gap: 5px;
+            margin: 0 10px;
+        }
+
+        .powerup-icon-ui {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            background: rgba(203, 191, 154, 0.2);
+            border: 1px solid var(--color-olive);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            animation: pulse-ui 1.5s infinite ease-in-out;
+        }
+
+        @keyframes pulse-ui {
+            0% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+
+            50% {
+                transform: scale(1.1);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+        }
+
+        /* CENTER INFO */
+        .center-info {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+        }
+
+        .game-title {
+            font-family: 'Stardos Stencil', cursive;
+            font-size: 1.4rem;
+            color: var(--color-beige);
+            text-shadow: 2px 2px 0 var(--color-olive);
+            letter-spacing: 2px;
+            margin: 0;
+            line-height: 1;
+        }
+
+        .timer {
+            font-family: 'Stardos Stencil', cursive;
+            font-size: 0.8rem;
+            color: var(--color-beige);
+            opacity: 0.9;
+        }
+
+        /* GAME AREA */
+        #layout-container {
+            display: none;
+            flex: 1;
+            width: 100%;
+            height: calc(100% - 50px);
+            background: var(--color-black);
+            position: relative;
+        }
+
+        #game-wrapper {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+            background: var(--color-black);
+        }
+
+        #game-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            background: #000;
+            /* Fondo negro puro fuera de la arena */
+        }
+
+        canvas {
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        #menu-screen {
+            pointer-events: auto;
+            background: transparent;
+            padding: 20px 30px;
+            text-align: center;
+            margin-top: 350px;
+            margin-left: 450px;
+        }
+
+        #game-over {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 5000;
+            pointer-events: auto;
+            background: rgba(15, 18, 16, 0.95);
+            border: 2px solid var(--color-olive);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            min-width: 200px;
+        }
+
+        #game-over h1 {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+
+        #game-over button {
+            font-size: 0.8rem;
+            min-width: 120px;
+            padding: 5px 10px;
+            margin: 5px;
+        }
+
+        h1 {
+            font-family: 'Stardos Stencil';
+            font-size: 3.5rem;
+            color: var(--color-beige);
+            margin: 0 0 15px 0;
+            text-shadow: 3px 3px 0 var(--color-olive), 6px 6px 12px rgba(0, 0, 0, 0.8);
+            letter-spacing: 2px;
+        }
+
+        button {
+            background: var(--color-beige);
+            border: 3px solid var(--color-olive);
+            padding: 8px 15px;
+            font-family: 'Stardos Stencil', sans-serif;
+            font-size: 1.1rem;
+            color: var(--color-black);
+            cursor: pointer;
+            border-radius: 12px;
+            margin: 10px;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+            font-weight: bold;
+            min-width: 220px;
+        }
+
+        button:hover {
+            transform: scale(1.05) translateY(-3px);
+            background: var(--color-olive);
+            border-color: var(--color-beige);
+            box-shadow: 0 8px 25px rgba(79, 93, 47, 0.6);
+            color: var(--color-beige);
+        }
+
+        #waiting-room {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(15, 18, 16, 0.95);
+            padding: 30px;
+            border: 2px solid var(--color-olive);
+            border-radius: 15px;
+            text-align: center;
+            z-index: 3000;
+            min-width: 320px;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.9);
+        }
+
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 5px solid var(--color-beige);
+            border-bottom-color: transparent;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes rotation {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes pulse-critical {
+            from {
+                filter: brightness(1);
+            }
+
+            to {
+                filter: brightness(1.5);
+                box-shadow: 0 0 20px rgba(255, 68, 68, 0.6);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- TOP BAR -->
+    <div id="top-bar">
+        <div class="player-info">
+            <span class="player-name" id="p1-name">JUGADOR 1</span>
+            <div class="hp-bar-container">
+                <div class="hp-bar-fill" id="p1-hp-bar"></div>
+            </div>
+            <div id="p1-powerups" class="powerup-indicators"></div>
+        </div>
+        <div class="center-info">
+            <span class="game-title">BRAWL BOOM</span>
+            <span class="timer" id="game-timer">2:00</span>
+        </div>
+        <div class="player-info right">
+            <span class="player-name" id="p2-name">JUGADOR 2</span>
+            <div class="hp-bar-container right-aligned">
+                <div class="hp-bar-fill" id="p2-hp-bar"></div>
+            </div>
+            <div id="p2-powerups" class="powerup-indicators"></div>
+        </div>
+    </div>
+
+    <!-- GAME AREA -->
+    <div id="layout-container">
+        <div id="game-wrapper">
+            <div id="game-container"></div>
+        </div>
+        <div id="game-over" style="display:none;">
+            <h1 id="winner-text">FIN DEL JUEGO</h1>
+            <h3 id="trophy-result" style="color: #FFD700; margin-top: -10px; display:none"></h3>
+            <button onclick="location.reload()">Salir</button>
+        </div>
+    </div>
+
+    <!-- OVERLAYS -->
+    <div id="ui-layer">
+        <div id="menu-screen">
+            <div style="display: flex; align-items: center; gap: 40px; justify-content: center;">
+                <div id="menu-main-content">
+                    <p
+                        style="color: #4F5D2F; font-size:1.1rem; margin-bottom: 20px; font-family:'Stardos Stencil'; font-weight: bold;">
+                        LA MEJOR ARENA EXPLOSIVA 1 VS1</p>
+                    <button id="pvp-btn">JUGADOR VS JUGADOR</button>
+                    <br>
+                    <button id="bot-btn">JUGADOR VS BOT</button>
+                    <br>
+                    <button id="online-btn">MODO ONLINE</button>
+                </div>
+
+                <div id="user-profile"
+                    style="display: none; background: rgba(15, 18, 16, 0.95); border: 2px solid var(--color-olive); padding: 25px; border-radius: 15px; width: 280px; backdrop-filter: blur(5px); box-shadow: 0 0 20px rgba(0,0,0,0.5);">
+                    <div style="font-size: 0.9rem; color: #888; margin-bottom: 8px; letter-spacing: 1px;">OPERATIVO
+                        ACTIVO:</div>
+                    <div id="profile-name"
+                        style="font-size: 1.5rem; color: var(--color-beige); text-shadow: 2px 2px 0 #000; margin-bottom: 25px;">
+                        SOLDADO</div>
+
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        <button onclick="logout()"
+                            style="width: 100%; font-size: 0.9rem; padding: 12px; margin: 0; background: rgba(15, 18, 16, 0.6); color: #888; border: 1px solid #444; border-radius: 8px; transition: all 0.2s;">DESCONECTAR
+                        </button>
+                        <button onclick="showLeaderboard()"
+                            style="width: 100%; font-size: 0.9rem; padding: 12px; margin: 0; background: var(--color-olive); color: var(--color-beige); border: none; border-radius: 8px; transition: all 0.2s; font-weight: bold;">MEJORES
+                            JUGADORES</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="leaderboard-overlay" onclick="closeLeaderboard()">
+            <div class="leaderboard-box" onclick="event.stopPropagation()">
+                <h2 style="color: var(--color-beige); font-size: 2rem; margin-bottom: 10px;">TOP 10 OPERATIVOS</h2>
+                <div id="leaderboard-content" style="min-height: 200px;">
+                    <!-- Table injected here -->
+                    <div class="loader" style="margin-top: 50px;"></div>
+                </div>
+                <button onclick="closeLeaderboard()" style="margin-top: 20px; min-width: 150px;">CERRAR</button>
+            </div>
+        </div>
+        <div id="login-overlay">
+            <div class="login-box" id="login-form">
+                <h2>REGISTRO DE BATALLA</h2>
+                <input type="text" id="username" placeholder="APODO">
+                <input type="password" id="password" placeholder="CÓDIGO DE ACCESO">
+                <div class="error-msg" id="auth-error"></div>
+                <button onclick="attemptLogin()">INICIAR SESIÓN</button>
+                <div class="form-switch" onclick="toggleAuthMode()">¿Nuevo recluta? Regístrate aquí</div>
+                <br>
+                <button onclick="closeLogin()"
+                    style="background:transparent; border:none; color:#666; width:auto; margin-top:0px; font-size:0.8rem; min-width:unset">CANCELAR</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="waiting-room">
+        <h3 style="margin-top: 0; color: var(--color-olive);">SALA DE ESPERA</h3>
+        <div id="waiting-loader" class="loader"></div>
+        <p id="match-status">BUSCANDO OPONENTE...</p>
+        <h1 id="match-timer" style="font-size: 3rem; margin: 10px 0;">30</h1>
+
+        <div id="waiting-error" style="display:none; margin: 20px 0;">
+            <p style="color: #ff4444; font-weight: bold; font-size: 1.1rem; margin-bottom: 15px;">NO SE HAN ENCONTRADO
+                OPONENTES</p>
+            <button onclick="returnToMenu()"
+                style="min-width: 120px; padding: 8px 20px; font-size: 0.9rem;">SALIR</button>
+        </div>
+
+        <p id="waiting-cancel-hint" style="font-size: 0.8rem; margin-top: 20px; opacity: 0.7;">PRESIONA ESC PARA
+            CANCELAR</p>
+    </div>
+
+    <script>
+        const TOP_BAR_HEIGHT = 50;
+        const GAME_WIDTH = 1600;
+        const GAME_HEIGHT = 800;
+
+        const BASE_PLAYER_SPEED = 4;
+        const BASE_BOMB_COOLDOWN = 1200;
+        const BOMB_TIMER = 1000;
+        const BASE_EXPLOSION_RADIUS = 120;
+        const MIN_DAMAGE = 10;
+        const MAX_DAMAGE = 40;
+        const GAME_DURATION = 120; // 2 minutes in seconds
+
+        const POWERUP_TYPES = {
+            SPEED: { color: 0xCBBF9A, symbol: '⚡', name: 'SPEED BOOST', duration: 8000 },
+            RANGE: { color: 0x4F5D2F, symbol: '💣', name: 'MEGA BLAST', duration: 10000 },
+            MULTI_BOMB: { color: 0xCBBF9A, symbol: '➕', name: 'EXTRA BOMB', duration: 10000 },
+            SHIELD: { color: 0x4F5D2F, symbol: '🛡️', name: 'SHIELD', duration: 8000 },
+            HEALTH: { color: 0xCBBF9A, symbol: '❤️', name: 'MEDKIT', duration: 0 }
+        };
+
+        let gameMode = null;
+        let gameInstance = null;
+        let gameScene = null;
+        let player1, player2;
+        let bombs = [], powerups = [], nextPowerupTime = 0;
+        let gameTimeRemaining = GAME_DURATION;
+        let timerInterval = null;
+        let socket = null;
+        let myId = null;
+        let isOnline = false;
+        let isLocalPlayerOnRight = false;
+        let matchCountdown = 30;
+        let matchInterval = null;
+        let onlineObstaclesData = null;
+
+        // Auth State
+        let currentUser = null;
+        let isRegisterMode = false;
+
+        // Check for saved session on load
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedUser = localStorage.getItem('brawl_boom_user');
+            if (savedUser) {
+                currentUser = JSON.parse(savedUser);
+                updateProfileUI();
+            }
+        });
+
+        document.getElementById('pvp-btn').addEventListener('click', () => initGame('pvp'));
+        document.getElementById('bot-btn').addEventListener('click', () => initGame('bot'));
+        document.getElementById('online-btn').addEventListener('click', () => initOnlineMode());
+
+        function updateProfileUI() {
+            const profileDiv = document.getElementById('user-profile');
+            const profileName = document.getElementById('profile-name');
+            if (currentUser) {
+                profileDiv.style.display = 'block';
+                profileName.innerHTML = `${currentUser.username} <span class="trophy-icon">🏆${currentUser.trophies || 500}</span>`;
+            } else {
+                profileDiv.style.display = 'none';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('brawl_boom_user');
+            currentUser = null;
+            updateProfileUI();
+        }
+
+        async function showLeaderboard() {
+            const overlay = document.getElementById('leaderboard-overlay');
+            const content = document.getElementById('leaderboard-content');
+            overlay.style.display = 'flex';
+            content.innerHTML = '<div class="loader" style="margin-top: 50px;"></div>';
+
+            try {
+                const res = await fetch('/api/leaderboard');
+                const data = await res.json();
+
+                let html = `
+                    <table class="leaderboard-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>APODO</th>
+                                <th style="text-align: right;">TROFEOS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                data.forEach((player, index) => {
+                    let rankClass = '';
+                    if (index === 0) rankClass = 'rank-gold';
+                    else if (index === 1) rankClass = 'rank-silver';
+                    else if (index === 2) rankClass = 'rank-bronze';
+
+                    html += `
+                        <tr>
+                            <td class="${rankClass}">${index + 1}</td>
+                            <td style="color: var(--color-beige)">${player.username}</td>
+                            <td style="text-align: right; color: #FFD700; font-weight: bold;">🏆 ${player.trophies}</td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+                content.innerHTML = html;
+            } catch (e) {
+                content.innerHTML = '<p style="color: #ff4444; margin-top: 50px;">FALLÓ AL CARGAR INTELIGENCIA</p>';
+            }
+        }
+
+        function closeLeaderboard() {
+            document.getElementById('leaderboard-overlay').style.display = 'none';
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' || e.keyCode === 27) {
+                console.log("ESC key detected");
+                returnToMenu();
+            }
+        }, true); // Use capture phase to intercept before Phaser
+
+        function returnToMenu() {
+            console.log("Returning to menu smoothly...");
+
+            // 1. Disconnect socket
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+
+            // 2. Clear intervals
+            if (timerInterval) clearInterval(timerInterval);
+            if (matchInterval) clearInterval(matchInterval);
+
+            // 3. Destroy Phaser Game Instance
+            if (gameInstance) {
+                gameInstance.destroy(true);
+                gameInstance = null;
+            }
+
+            // 4. Reset Game Variables
+            gameMode = null;
+            gameScene = null;
+            player1 = null;
+            player2 = null;
+            bombs = [];
+            powerups = [];
+            obstacles = [];
+            nextPowerupTime = 0;
+            isOnline = false;
+            isLocalPlayerOnRight = false;
+            onlineObstaclesData = null;
+            gameTimeRemaining = GAME_DURATION;
+
+            // 5. Reset UI Elements
+            document.getElementById('layout-container').style.display = 'none';
+            document.getElementById('top-bar').style.display = 'none';
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('waiting-room').style.display = 'none';
+            document.getElementById('leaderboard-overlay').style.display = 'none';
+            document.getElementById('login-overlay').style.display = 'none';
+            document.getElementById('menu-screen').style.display = 'block';
+
+            // Clean up UI markers
+            document.getElementById('p1-powerups').innerHTML = '';
+            document.getElementById('p2-powerups').innerHTML = '';
+            document.getElementById('p1-hp-bar').style.width = '100%';
+            document.getElementById('p2-hp-bar').style.width = '100%';
+            document.getElementById('p1-hp-bar').style.animation = 'none';
+            document.getElementById('p2-hp-bar').style.animation = 'none';
+
+            // Reset text
+            document.getElementById('p1-name').innerText = "JUGADOR 1";
+            document.getElementById('p2-name').innerText = "JUGADOR 2";
+
+            // Reset waiting room UI
+            document.getElementById('waiting-loader').style.display = 'inline-block';
+            document.getElementById('match-status').style.display = 'block';
+            document.getElementById('match-timer').style.display = 'block';
+            document.getElementById('waiting-error').style.display = 'none';
+            document.getElementById('waiting-cancel-hint').style.display = 'block';
+        }
+
+        function initOnlineMode() {
+            if (typeof io === 'undefined') {
+                alert("ERROR: Server not found. Run 'node server.js'");
+                return;
+            }
+
+            if (!currentUser) {
+                document.getElementById('login-overlay').style.display = 'flex';
+                return;
+            }
+
+            // UI Transition
+            document.getElementById('menu-screen').style.display = 'none';
+            document.getElementById('waiting-room').style.display = 'block';
+
+            socket = io();
+            isOnline = true;
+            matchCountdown = 30;
+            document.getElementById('match-timer').innerText = matchCountdown;
+
+            socket.on('connect', () => {
+                socket.emit('identify', currentUser);
+                socket.emit('findMatch'); // socket.user is set on server by identify
+            });
+
+            socket.on('authError', (msg) => {
+                alert(msg);
+                returnToMenu();
+            });
+
+            socket.on('waitingForOpponent', () => {
+                startMatchmakingTimer();
+            });
+
+            socket.on('matchFound', (data) => {
+                clearInterval(matchInterval);
+                document.getElementById('waiting-room').style.display = 'none';
+                myId = socket.id;
+                onlineObstaclesData = data.obstacles;
+
+                // Determine if I am on the right side
+                const me = data.players[myId];
+                isLocalPlayerOnRight = (me.x > 800);
+
+                // Sync names and colors based on position
+                const opponent = Object.values(data.players).find(p => p.id !== myId);
+
+                const formatName = (p) => `${p.username} <span class="trophy-icon">🏆${p.trophies || 500}</span>`;
+
+                if (isLocalPlayerOnRight) {
+                    // "YOU" are on the right
+                    document.getElementById('p2-name').innerHTML = formatName(me);
+                    document.getElementById('p2-name').style.color = "#CBBF9A";
+                    if (opponent) {
+                        document.getElementById('p1-name').innerHTML = formatName(opponent);
+                        document.getElementById('p1-name').style.color = "#CBBF9A";
+                    }
+                } else {
+                    // "YOU" are on the left
+                    document.getElementById('p1-name').innerHTML = formatName(me);
+                    document.getElementById('p1-name').style.color = "#CBBF9A";
+                    if (opponent) {
+                        document.getElementById('p2-name').innerHTML = formatName(opponent);
+                        document.getElementById('p2-name').style.color = "#CBBF9A";
+                    }
+                }
+
+                initGame('online');
+            });
+
+            socket.on('serverUpdate', (state) => {
+                if (gameScene) syncOnlineState(state);
+            });
+
+            socket.on('explosion', (data) => {
+                if (gameScene) createExplosionEffect(data.x, data.y, data.range);
+            });
+
+            socket.on('gameOver', (data) => {
+                if (timerInterval) clearInterval(timerInterval);
+
+                // Final HP sync
+                if (data.players) {
+                    Object.values(data.players).forEach(pData => {
+                        if (!player1 || !player2) return;
+                        const target = pData.id === myId ? player1 : player2;
+                        if (target) target.hp = pData.hp;
+                    });
+                }
+                updateUI();
+
+                let msg = "GAME OVER";
+                let trophyMsg = "";
+
+                if (data.reason === 'OPPONENT_LEFT') {
+                    msg = data.winnerId === socket.id ? "EL OPONENTE SE FUE - ¡GANASTE!" : "DESCONECTADO - ¡PERDISTE!";
+                } else if (data.winnerId) {
+                    msg = data.winnerId === socket.id ? "¡VICTORIA!" : "¡DERROTA!";
+                } else {
+                    msg = "¡EMPATE!";
+                }
+
+                if (data.trophyChanges && data.trophyChanges[socket.id] !== undefined) {
+                    const delta = data.trophyChanges[socket.id];
+                    const sign = delta > 0 ? "+" : "";
+                    const color = delta >= 0 ? "#4CAF50" : "#ff4444";
+                    trophyMsg = `<span style="color:${color}">${sign}${delta} TROFEOS</span>`;
+
+                    // Update local cache
+                    if (currentUser) {
+                        currentUser.trophies += delta;
+                        localStorage.setItem('brawl_boom_user', JSON.stringify(currentUser));
+                    }
+                }
+
+                document.getElementById('winner-text').innerText = msg;
+                if (trophyMsg) {
+                    const tDisplay = document.getElementById('trophy-result');
+                    tDisplay.innerHTML = trophyMsg;
+                    tDisplay.style.display = 'block';
+                }
+
+                document.getElementById('ui-layer').style.pointerEvents = 'auto';
+                document.getElementById('game-over').style.display = 'flex';
+                if (gameScene) gameScene.scene.pause();
+            });
+        }
+
+        // AUTH FUNCTIONS
+        function toggleAuthMode() {
+            isRegisterMode = !isRegisterMode;
+            const btn = document.querySelector('#login-form button');
+            const toggle = document.querySelector('.form-switch');
+            const title = document.querySelector('#login-form h2');
+
+            if (isRegisterMode) {
+                title.innerText = "REGISTRO DE NUEVO RECLUTA";
+                btn.innerText = "REGISTRARSE Y DESPLEGAR";
+                btn.onclick = attemptRegister;
+                toggle.innerText = "¿Ya estás alistado? Iniciar sesión aquí";
+            } else {
+                title.innerText = "REGISTRO DE BATALLA";
+                btn.innerText = "INICIAR SESIÓN";
+                btn.onclick = attemptLogin;
+                toggle.innerText = "¿Nuevo recluta? Regístrate aquí";
+            }
+        }
+
+        function closeLogin() {
+            document.getElementById('login-overlay').style.display = 'none';
+            // If login is closed, ensure we return to menu if we were trying to go online
+            if (gameMode === 'online' && !currentUser) {
+                returnToMenu();
+            }
+        }
+
+        async function attemptLogin() {
+            const u = document.getElementById('username').value;
+            const p = document.getElementById('password').value;
+            const err = document.getElementById('auth-error');
+            err.innerText = ''; // Clear previous errors
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u, password: p })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    currentUser = data; // { id, username, trophies }
+                    localStorage.setItem('brawl_boom_user', JSON.stringify(currentUser));
+                    updateProfileUI();
+                    closeLogin();
+                    initOnlineMode();
+                } else {
+                    err.innerText = data.error;
+                }
+            } catch (e) {
+                err.innerText = "Error de conexión";
+            }
+        }
+
+        async function attemptRegister() {
+            const u = document.getElementById('username').value;
+            const p = document.getElementById('password').value;
+            const err = document.getElementById('auth-error');
+            err.innerText = ''; // Clear previous errors
+
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u, password: p })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    currentUser = data;
+                    localStorage.setItem('brawl_boom_user', JSON.stringify(currentUser));
+                    updateProfileUI();
+                    closeLogin();
+                    initOnlineMode();
+                } else {
+                    err.innerText = data.error;
+                }
+            } catch (e) {
+                err.innerText = "Error de conexión";
+            }
+        }
+
+        function startMatchmakingTimer() {
+            if (matchInterval) clearInterval(matchInterval);
+            matchInterval = setInterval(() => {
+                matchCountdown--;
+                document.getElementById('match-timer').innerText = matchCountdown;
+                if (matchCountdown <= 0) {
+                    cancelMatchmaking("NO SE ENCONTRARON OPONENTES");
+                }
+            }, 1000);
+        }
+
+        function cancelMatchmaking(reason = "") {
+            if (reason === "NO SE ENCONTRARON OPONENTES") {
+                clearInterval(matchInterval);
+                document.getElementById('waiting-loader').style.display = 'none';
+                document.getElementById('match-status').style.display = 'none';
+                document.getElementById('match-timer').style.display = 'none';
+                document.getElementById('waiting-cancel-hint').style.display = 'none';
+                document.getElementById('waiting-error').style.display = 'block';
+            } else {
+                returnToMenu();
+            }
+        }
+
+        function initGame(mode) {
+            gameMode = mode;
+            document.getElementById('menu-screen').style.display = 'none';
+            document.getElementById('layout-container').style.display = 'flex';
+            document.getElementById('top-bar').style.display = 'flex';
+
+            if (mode === 'bot') {
+                document.getElementById('p2-name').innerText = "BOT";
+            }
+
+            startGameTimer();
+            gameInstance = new Phaser.Game(config);
+        }
+
+        function startGameTimer() {
+            gameTimeRemaining = GAME_DURATION;
+            updateTimerDisplay();
+            timerInterval = setInterval(() => {
+                gameTimeRemaining--;
+                updateTimerDisplay();
+                if (gameTimeRemaining <= 0) {
+                    clearInterval(timerInterval);
+                    endGameByTime();
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(gameTimeRemaining / 60);
+            const seconds = gameTimeRemaining % 60;
+            document.getElementById('game-timer').innerText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        function endGameByTime() {
+            updateUI();
+            let msg = "¡EMPATE!";
+            if (player1.hp > player2.hp) msg = "¡JUGADOR 1 GANA!";
+            else if (player2.hp > player1.hp) msg = player2.isBot ? "¡EL BOT GANA!" : "¡JUGADOR 2 GANA!";
+            document.getElementById('winner-text').innerText = msg;
+            document.getElementById('game-over').style.display = 'flex';
+            if (gameScene) gameScene.scene.pause();
+        }
+
+        const config = {
+            type: Phaser.AUTO,
+            width: GAME_WIDTH,
+            height: GAME_HEIGHT,
+            parent: 'game-container',
+            transparent: true,
+            physics: { default: 'arcade', arcade: { debug: false } },
+            scene: { preload: preload, create: create, update: update },
+            scale: {
+                mode: Phaser.Scale.FIT,
+                autoCenter: Phaser.Scale.CENTER_BOTH,
+                width: GAME_WIDTH,
+                height: GAME_HEIGHT
+            }
+        };
+
+        function preload() {
+            this.load.image('soldier1', 'assets/soldier_48_1.png');
+            this.load.image('soldier2', 'assets/soldier_48_2.png');
+            this.load.image('background', 'assets/backsand.png');
+        }
+
+        function create() {
+            gameScene = this;
+            createProceduralBackground(this);
+
+            player1 = createPlayer(this, 100, GAME_HEIGHT / 2, 0xCBBF9A, 'soldier1');
+            player1.keys = {
+                up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+                down: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+                left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+                right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+                bomb: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+            };
+            this.cursors = this.input.keyboard.createCursorKeys();
+
+            const p2X = GAME_WIDTH - 100;
+            player2 = createPlayer(this, p2X, GAME_HEIGHT / 2, 0x4F5D2F, 'soldier2');
+
+            // Set initial faces (P1 right, P2 left)
+            player1.container.rotation = Math.PI / 2;
+            player2.container.rotation = -Math.PI / 2;
+
+            player2.isBot = (gameMode === 'bot');
+            if (!player2.isBot && !isOnline) {
+                player2.keys = {
+                    up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP),
+                    down: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN),
+                    left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT),
+                    right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT),
+                    bomb: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER)
+                };
+            }
+
+            nextPowerupTime = this.time.now + 4000;
+
+            if (gameMode === 'online' && onlineObstaclesData) {
+                createSyncObstacles(this, onlineObstaclesData);
+            } else {
+                createObstacles(this);
+            }
+        }
+
+        function createSyncObstacles(scene, data) {
+            obstacles = [];
+            data.forEach(d => {
+                const container = scene.add.container(d.x, d.y);
+                const body = scene.add.rectangle(0, 0, d.w, d.h, 0x222222).setStrokeStyle(3, 0x444444);
+                const cracks = scene.add.graphics().setVisible(false);
+                container.add([body, cracks]);
+                obstacles.push({ id: d.id, x: d.x, y: d.y, w: d.w, h: d.h, obj: container, body: body, cracks: cracks, hp: d.hp });
+            });
+        }
+
+        let obstacles = [];
+
+        function createObstacles(scene) {
+            obstacles = [];
+            const maxAttempts = 50;
+            const targetCount = 16;
+
+            for (let i = 0; i < targetCount; i++) {
+                let foundSpot = false;
+                let attempt = 0;
+                while (!foundSpot && attempt < maxAttempts) {
+                    attempt++;
+                    const w = 60;
+                    const h = 60;
+                    const x = Phaser.Math.Between(150, GAME_WIDTH - 150);
+                    const y = Phaser.Math.Between(150, GAME_HEIGHT - 150);
+
+                    const distP1 = Phaser.Math.Distance.Between(x, y, player1.container.x, player1.container.y);
+                    const distP2 = Phaser.Math.Distance.Between(x, y, player2.container.x, player2.container.y);
+                    if (distP1 < 150 || distP2 < 150) continue;
+
+                    let overlap = false;
+                    for (const o of obstacles) {
+                        if (x + w / 2 + 15 > o.x - o.w / 2 && x - w / 2 - 15 < o.x + o.w / 2 &&
+                            y + h / 2 + 15 > o.y - o.h / 2 && y - h / 2 - 15 < o.y + o.h / 2) {
+                            overlap = true; break;
+                        }
+                    }
+
+                    if (!overlap) {
+                        const container = scene.add.container(x, y);
+                        const body = scene.add.rectangle(0, 0, w, h, 0x222222).setStrokeStyle(3, 0x444444);
+                        const cracks = scene.add.graphics();
+                        container.add(body);
+                        container.add(cracks);
+                        obstacles.push({ x, y, w, h, obj: container, body: body, cracks: cracks, hp: 75 });
+                        foundSpot = true;
+                    }
+                }
+            }
+        }
+
+        function createProceduralBackground(scene) {
+            // Fondo de arena limitado a la zona de juego
+            const bg = scene.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'background');
+            bg.setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+
+            // Marco Táctico (Borde del campo de batalla)
+            const border = scene.add.graphics();
+            border.lineStyle(6, 0x4F5D2F, 1); // Verde oliva táctico
+            border.strokeRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+            // Efecto de viñeta interna para dar profundidad
+            const vignette = scene.add.graphics();
+            vignette.fillStyle(0x000000, 0.3);
+            // Sombra en los bordes para resaltar el centro
+            vignette.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0, 0, 0.4, 0.4);
+        }
+
+        function createPlayer(scene, x, y, color, textureKey) {
+            const container = scene.add.container(x, y);
+            let sprite = scene.textures.exists(textureKey) ? scene.add.image(0, 0, textureKey).setScale(1.2) : scene.add.rectangle(0, 0, 48, 48, color).setStrokeStyle(2, 0x000000);
+            const heldBomb = scene.add.container(21, -8).add([
+                scene.add.circle(0, 0, 6, 0x0F1210),
+                scene.add.rectangle(0, -7, 1.5, 3, 0xCBBF9A)
+            ]);
+            container.add([sprite, heldBomb]);
+            return {
+                container, sprite, heldBomb, hp: 100, lastBomb: 0, powerups: {},
+                activeBombs: 0, maxBombs: 1, multiBombTimers: [],
+                speed: BASE_PLAYER_SPEED, range: BASE_EXPLOSION_RADIUS, color: color,
+                animStep: 0, aiTimer: 0, moveDir: { x: 0, y: 0 },
+                bombCharge: 0
+            };
+        }
+
+        function update(time, delta) {
+            if (!player1 || !player2) return;
+
+            // Updated UI every frame for both modes
+            updateUI();
+
+            if (isOnline) {
+                const cursors = gameScene.cursors;
+                const input = {
+                    up: player1.keys.up.isDown || cursors.up.isDown,
+                    down: player1.keys.down.isDown || cursors.down.isDown,
+                    left: player1.keys.left.isDown || cursors.left.isDown,
+                    right: player1.keys.right.isDown || cursors.right.isDown,
+                    bomb: player1.keys.bomb.isDown ||
+                        cursors.space.isDown ||
+                        this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER).isDown
+                };
+
+                socket.emit('playerInput', input);
+
+                // Local charge simulation for immediate feedback
+                if (input.bomb && player1.activeBombs < player1.maxBombs) {
+                    player1.bombCharge = Math.min(1000, (player1.bombCharge || 0) + 18);
+                }
+            } else {
+                // Spawn aleatorio desactivado, ahora solo bajo obstáculos
+                // if (time > nextPowerupTime) { spawnPowerup(); nextPowerupTime = time + Phaser.Math.Between(8000, 12000); }
+
+                movePlayer(player1);
+                if (player2.isBot) updateBot(player2, player1, time);
+                else movePlayer(player2);
+
+                checkCollisions(player1, time);
+                checkCollisions(player2, time);
+            }
+
+            // Visual updates run every frame for both modes
+            updatePlayer(player1, time);
+            updatePlayer(player2, time);
+            updateBombs(time, delta);
+
+            if (!isOnline && (player1.hp <= 0 || player2.hp <= 0)) endGame();
+        }
+
+        function updatePlayer(player, time) {
+            player.activeBombs = Math.max(0, player.activeBombs);
+            player.speed = BASE_PLAYER_SPEED;
+            player.range = BASE_EXPLOSION_RADIUS;
+            player.maxBombs = 1;
+            player.isInvulnerable = false;
+            player.multiBombTimers = player.multiBombTimers.filter(expiry => time < expiry);
+            player.maxBombs += player.multiBombTimers.length;
+
+            player.heldBomb.setVisible(player.activeBombs < player.maxBombs);
+            player.sprite.setTint(player.color).setAlpha(1);
+
+            Object.keys(player.powerups).forEach(type => {
+                if (time < player.powerups[type]) {
+                    if (type === 'SPEED') player.speed *= 1.6;
+                    if (type === 'RANGE') player.range *= 1.5;
+                    if (type === 'SHIELD') {
+                        player.isInvulnerable = true;
+                        player.sprite.setTint(0x4F5D2F).setAlpha(0.7 + Math.sin(time * 0.01) * 0.3);
+                    }
+                } else delete player.powerups[type];
+            });
+
+        }
+
+        function syncOnlineState(state) {
+            // Sincronizar Jugadores
+            Object.values(state.players).forEach(pData => {
+                const target = pData.id === myId ? player1 : player2;
+                if (!target) return;
+                target.container.x = pData.x;
+                target.container.y = pData.y;
+                target.container.rotation = pData.rotation;
+                target.hp = pData.hp;
+                target.activeBombs = pData.activeBombs;
+                target.maxBombs = pData.maxBombs;
+                target.bombCharge = pData.bombCharge || 0;
+                target.powerups = pData.powerups || {};
+                target.multiBombTimers = pData.multiBombTimers || [];
+            });
+
+            // Sincronizar Bombas (Visuales)
+            // Primero eliminamos bombas locales que ya no están en el servidor
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                const b = bombs[i];
+                if (!state.bombs.find(sb => sb.id === b.id)) {
+                    if (b.container) b.container.destroy();
+                    bombs.splice(i, 1);
+                }
+            }
+
+            // Creamos/Actualizamos bombas del servidor
+            state.bombs.forEach(sb => {
+                let lb = bombs.find(b => b.id === sb.id);
+                if (!lb) {
+                    const container = gameScene.add.container(sb.x, sb.y);
+                    container.add([gameScene.add.circle(0, 0, 8, 0x0F1210), gameScene.add.rectangle(0, -10, 2, 5, 0xCBBF9A)]);
+                    // Copy ALL properties for movement and arc effect
+                    lb = {
+                        id: sb.id,
+                        container,
+                        x: sb.x,
+                        y: sb.y,
+                        vx: sb.vx,
+                        vy: sb.vy,
+                        range: sb.range,
+                        explodeTime: sb.explodeTime,
+                        startTime: sb.startTime // Added sync for arc effect
+                    };
+                    bombs.push(lb);
+                } else {
+                    // Smoothly update position from server, but movement loop handles interpolation
+                    lb.x = sb.x;
+                    lb.y = sb.y;
+                    lb.vx = sb.vx;
+                    lb.vy = sb.vy;
+                    lb.explodeTime = sb.explodeTime;
+                    lb.startTime = sb.startTime || lb.startTime; // Update if provided
+                    lb.container.x = sb.x;
+                    lb.container.y = sb.y;
+                }
+            });
+
+            // Sincronizar Powerups
+            // Eliminar powerups locales que ya no están en el servidor
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                const lp = powerups[i];
+                if (!state.powerups.find(sp => sp.id === lp.id)) {
+                    if (lp.objs) lp.objs.forEach(o => o.destroy());
+                    powerups.splice(i, 1);
+                }
+            }
+            // Crear nuevos powerups del servidor
+            state.powerups.forEach(sp => {
+                if (!powerups.find(lp => lp.id === sp.id)) {
+                    const type = sp.type;
+                    const x = sp.x;
+                    const y = sp.y;
+                    const b = gameScene.add.circle(x, y, 18, 0x0F1210, 0.8).setStrokeStyle(2, POWERUP_TYPES[type].color);
+                    const t = gameScene.add.text(x, y, POWERUP_TYPES[type].symbol, { fontSize: '22px' }).setOrigin(0.5);
+                    powerups.push({ id: sp.id, x, y, type, objs: [b, t] });
+                }
+            });
+
+            // Sincronizar Obstáculos (destrucción)
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                const serverObs = state.obstacles.find(so => so.id === obs.id);
+                if (!serverObs) {
+                    if (obs.obj) obs.obj.destroy();
+                    obstacles.splice(i, 1);
+                } else if (obs.hp !== serverObs.hp) {
+                    obs.hp = serverObs.hp;
+                    updateObstacleCracks(obs);
+                }
+            }
+        }
+
+        function updateObstacleCracks(obs) {
+            if (!obs || !obs.cracks || !obs.body) return;
+
+            obs.cracks.clear();
+            const hp = obs.hp;
+
+            // Reset body style to default
+            obs.body.setFillStyle(0x222222);
+            obs.body.setStrokeStyle(3, 0x444444);
+
+            if (hp >= 75) {
+                obs.cracks.setVisible(false);
+                return;
+            }
+
+            obs.cracks.setVisible(true);
+            obs.cracks.setDepth(100);
+
+            // SOLO GRIETAS BLANCAS
+            const missingHp = 75 - hp;
+            // Increase line count: roughly 1 line per 2 missing HP
+            const lineCount = Math.floor(missingHp / 2) + 2;
+
+            obs.cracks.lineStyle(3, 0xFFFFFF, 1.0); // Thicker (3px) and fully opaque
+
+            for (let i = 0; i < lineCount; i++) {
+                const x1 = Phaser.Math.Between(-25, 25);
+                const y1 = Phaser.Math.Between(-25, 25);
+
+                const x2 = x1 + Phaser.Math.Between(-20, 20);
+                const y2 = y1 + Phaser.Math.Between(-20, 20);
+
+                obs.cracks.moveTo(x1, y1);
+                obs.cracks.lineTo(Phaser.Math.Clamp(x2, -28, 28), Phaser.Math.Clamp(y2, -28, 28));
+            }
+
+            // CRITICAL FIX: Must call strokePath to render the created paths
+            obs.cracks.strokePath();
+
+            // Shake Effect
+            if (obs.obj && gameScene) {
+                gameScene.tweens.add({
+                    targets: obs.obj,
+                    angle: { from: -4, to: 4 },
+                    duration: 50,
+                    yoyo: true,
+                    repeat: 3,
+                    onComplete: () => { if (obs.obj) obs.obj.angle = 0; }
+                });
+            }
+        }
+
+        function updateUI() {
+            if (!player1 || !player2) return;
+
+            const updateBar = (player, barId, isRight) => {
+                const bar = document.getElementById(barId);
+                if (!bar) return;
+
+                const hp = Math.max(0, Math.min(100, player.hp));
+                bar.style.width = hp + '%';
+
+                // Beige (#CBBF9A) at 100% HP, Pure Red (#FF0000) at 0% HP
+                const r_start = 203, g_start = 191, b_start = 154;
+                const r_end = 255, g_end = 0, b_end = 0;
+
+                const ratio = hp / 100;
+
+                // Simple linear interpolation
+                const r = Math.round(r_end + (r_start - r_end) * ratio);
+                const g = Math.round(g_end + (g_start - g_end) * ratio);
+                const b = Math.round(b_end + (b_start - b_end) * ratio);
+
+                const currentColor = `rgb(${r}, ${g}, ${b})`;
+
+                // Solid color instead of gradient
+                bar.style.background = hp > 0 ? currentColor : 'transparent';
+                bar.style.boxShadow = hp > 0 ? `0 0 10px rgba(${r}, ${g}, ${b}, 0.5)` : 'none';
+
+                if (hp < 30 && hp > 0) {
+                    bar.style.animation = 'pulse-critical 0.5s infinite alternate';
+                } else {
+                    bar.style.animation = 'none';
+                }
+            };
+
+            if (isLocalPlayerOnRight) {
+                // Swap mapping for online mode if I'm on the right
+                updateBar(player1, 'p2-hp-bar', true);
+                updateBar(player2, 'p1-hp-bar', false);
+
+                updatePowerupUI(player1, 'p2-powerups');
+                updatePowerupUI(player2, 'p1-powerups');
+            } else {
+                // Default mapping (Local p1 is left, opponent/p2 is right)
+                updateBar(player1, 'p1-hp-bar', false);
+                updateBar(player2, 'p2-hp-bar', true);
+
+                updatePowerupUI(player1, 'p1-powerups');
+                updatePowerupUI(player2, 'p2-powerups');
+            }
+        }
+
+        function updatePowerupUI(player, elementId) {
+            const container = document.getElementById(elementId);
+            container.innerHTML = '';
+            const activeTypes = new Set(Object.keys(player.powerups));
+            if (player.multiBombTimers.length > 0) activeTypes.add('MULTI_BOMB');
+            activeTypes.forEach(type => {
+                const icon = document.createElement('div');
+                icon.className = 'powerup-icon-ui';
+                icon.innerText = (type === 'MULTI_BOMB' && player.multiBombTimers.length > 1) ? `${POWERUP_TYPES[type].symbol} x${player.multiBombTimers.length}` : POWERUP_TYPES[type].symbol;
+                container.appendChild(icon);
+            });
+        }
+
+        function movePlayer(player) {
+            if (!player.keys) return;
+            let dx = 0, dy = 0;
+            const cursors = gameScene.cursors;
+
+            if (player === player1 && gameMode !== 'pvp') {
+                if (player.keys.up.isDown || cursors.up.isDown) dy -= 1;
+                if (player.keys.down.isDown || cursors.down.isDown) dy += 1;
+                if (player.keys.left.isDown || cursors.left.isDown) dx -= 1;
+                if (player.keys.right.isDown || cursors.right.isDown) dx += 1;
+
+                applyMovement(player, dx, dy);
+
+                const bombKeyDown = player.keys.bomb.isDown || cursors.space.isDown || gameScene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER).isDown;
+
+                if (bombKeyDown && player.activeBombs < player.maxBombs) {
+                    player.bombCharge = Math.min(1000, (player.bombCharge || 0) + 16);
+                } else if (player.bombCharge > 0) {
+                    placeBomb(player, gameScene.time.now, player.bombCharge / 1000);
+                    player.bombCharge = 0;
+                }
+            } else {
+                if (player.keys.up.isDown) dy -= 1;
+                if (player.keys.down.isDown) dy += 1;
+                if (player.keys.left.isDown) dx -= 1;
+                if (player.keys.right.isDown) dx += 1;
+
+                applyMovement(player, dx, dy);
+
+                if (player.keys.bomb.isDown && player.activeBombs < player.maxBombs) {
+                    player.bombCharge = Math.min(1000, (player.bombCharge || 0) + 16);
+                } else if (player.bombCharge > 0) {
+                    placeBomb(player, gameScene.time.now, player.bombCharge / 1000);
+                    player.bombCharge = 0;
+                }
+            }
+        }
+
+        function applyMovement(player, dx, dy) {
+            if (dx !== 0 || dy !== 0) {
+                const len = Math.sqrt(dx * dx + dy * dy);
+                dx /= len; dy /= len;
+                const pRadius = 20;
+
+                let nextX = player.container.x + dx * player.speed;
+                let canMoveX = true;
+                for (const obs of obstacles) {
+                    if (nextX + pRadius > obs.x - obs.w / 2 && nextX - pRadius < obs.x + obs.w / 2 &&
+                        player.container.y + pRadius > obs.y - obs.h / 2 && player.container.y - pRadius < obs.y + obs.h / 2) {
+                        canMoveX = false; break;
+                    }
+                }
+                if (canMoveX) player.container.x = nextX;
+
+                let nextY = player.container.y + dy * player.speed;
+                let canMoveY = true;
+                for (const obs of obstacles) {
+                    if (player.container.x + pRadius > obs.x - obs.w / 2 && player.container.x - pRadius < obs.x + obs.w / 2 &&
+                        nextY + pRadius > obs.y - obs.h / 2 && nextY - pRadius < obs.y + obs.h / 2) {
+                        canMoveY = false; break;
+                    }
+                }
+                if (canMoveY) player.container.y = nextY;
+
+                player.container.rotation = Math.atan2(dy, dx) + Math.PI / 2;
+                player.animStep += 0.2 * player.speed;
+                player.sprite.rotation = Math.sin(player.animStep) * 0.15;
+                player.sprite.y = Math.abs(Math.cos(player.animStep)) * -4;
+            } else {
+                player.sprite.y = 0; player.sprite.rotation = 0;
+            }
+            player.container.x = Phaser.Math.Clamp(player.container.x, 30, GAME_WIDTH - 30);
+            player.container.y = Phaser.Math.Clamp(player.container.y, 30, GAME_HEIGHT - 30);
+        }
+
+        function updateBot(bot, target, time) {
+            // Inicializar estados internos si no existen
+            if (!bot.stratMode) {
+                bot.stratMode = 'PATROL';
+                bot.stratTimer = time + 2000;
+                bot.patrolPoint = { x: bot.container.x, y: bot.container.y };
+            }
+
+            // Cambiar de estrategia periódicamente (cada 3-6 segundos)
+            if (time > bot.stratTimer) {
+                const modes = ['AGGRESSIVE', 'DEFENSIVE', 'PATROL', 'STALKER'];
+                bot.stratMode = modes[Math.floor(Math.random() * modes.length)];
+                bot.stratTimer = time + Phaser.Math.Between(3000, 6000);
+
+                if (bot.stratMode === 'PATROL') {
+                    bot.patrolPoint = {
+                        x: Phaser.Math.Between(100, GAME_WIDTH - 100),
+                        y: Phaser.Math.Between(100, GAME_HEIGHT - 100)
+                    };
+                }
+            }
+
+            if (time > bot.aiTimer) {
+                bot.aiTimer = time + Phaser.Math.Between(400, 900);
+
+                const dist = Phaser.Math.Distance.Between(bot.container.x, bot.container.y, target.container.x, target.container.y);
+                const angleToTarget = Phaser.Math.Angle.Between(bot.container.x, bot.container.y, target.container.x, target.container.y);
+
+                let nearestBomb = null;
+                let minDist = 220;
+                bombs.forEach(b => {
+                    const d = Phaser.Math.Distance.Between(bot.container.x, bot.container.y, b.x, b.y);
+                    if (d < minDist) { minDist = d; nearestBomb = b; }
+                });
+
+                if (nearestBomb) {
+                    const escapeAngle = Phaser.Math.Angle.Between(nearestBomb.x, nearestBomb.y, bot.container.x, bot.container.y);
+                    bot.moveDir.x = Math.cos(escapeAngle);
+                    bot.moveDir.y = Math.sin(escapeAngle);
+                } else if (powerups.length > 0 && Math.random() < 0.5) {
+                    const pw = powerups[0];
+                    const angleToPw = Phaser.Math.Angle.Between(bot.container.x, bot.container.y, pw.x, pw.y);
+                    bot.moveDir.x = Math.cos(angleToPw);
+                    bot.moveDir.y = Math.sin(angleToPw);
+                } else {
+                    switch (bot.stratMode) {
+                        case 'AGGRESSIVE':
+                            bot.moveDir.x = Math.cos(angleToTarget);
+                            bot.moveDir.y = Math.sin(angleToTarget);
+                            break;
+                        case 'DEFENSIVE':
+                            if (dist < 400) {
+                                bot.moveDir.x = -Math.cos(angleToTarget);
+                                bot.moveDir.y = -Math.sin(angleToTarget);
+                            } else {
+                                bot.moveDir.x *= 0.5; bot.moveDir.y *= 0.5;
+                            }
+                            break;
+                        case 'PATROL':
+                            const angleToPatrol = Phaser.Math.Angle.Between(bot.container.x, bot.container.y, bot.patrolPoint.x, bot.patrolPoint.y);
+                            bot.moveDir.x = Math.cos(angleToPatrol);
+                            bot.moveDir.y = Math.sin(angleToPatrol);
+                            if (Phaser.Math.Distance.Between(bot.container.x, bot.container.y, bot.patrolPoint.x, bot.patrolPoint.y) < 50) {
+                                bot.stratTimer = 0;
+                            }
+                            break;
+                        case 'STALKER':
+                            const sideAngle = angleToTarget + (Math.random() < 0.5 ? Math.PI / 2.5 : -Math.PI / 2.5);
+                            bot.moveDir.x = Math.cos(sideAngle);
+                            bot.moveDir.y = Math.sin(sideAngle);
+                            break;
+                    }
+
+                    if (dist < 500 && bot.activeBombs < bot.maxBombs && Math.random() < 0.4) {
+                        const charge = Phaser.Math.Clamp(dist / 550 + (Math.random() * 0.3), 0.1, 1);
+                        placeBomb(bot, time, charge);
+                    }
+                }
+            }
+            applyMovement(bot, bot.moveDir.x, bot.moveDir.y);
+        }
+
+        function placeBomb(player, time, chargeFactor = 0.5) {
+            if (player.activeBombs >= player.maxBombs) return;
+
+            // En modo online, el factor de carga se envía al servidor
+            if (isOnline && player === player1) {
+                // Para el modo online actual del servidor, mantenemos la lógica de JustDown simplificada por ahora
+                // pero enviamos el factor si el servidor lo soporta
+                socket.emit('placeBomb', { charge: chargeFactor });
+            }
+
+            // Offset calculation to match visual held bomb (21, -8) rotated
+            const offX = 21;
+            const offY = -8;
+            const cos = Math.cos(player.container.rotation);
+            const sin = Math.sin(player.container.rotation);
+            const startX = player.container.x + (offX * cos - offY * sin);
+            const startY = player.container.y + (offX * sin + offY * cos);
+
+            const container = gameScene.add.container(startX, startY);
+            container.add([gameScene.add.circle(0, 0, 8, 0x0F1210), gameScene.add.rectangle(0, -10, 2, 5, 0xCBBF9A)]);
+
+            const launchAngle = player.container.rotation - Math.PI / 2;
+            // Charge factor (0.1 to 1.0) scales the launch speed
+            const minSpeed = 0.1;
+            const maxSpeed = (player.range / BOMB_TIMER) * 3.5;
+            const launchSpeed = minSpeed + (maxSpeed - minSpeed) * chargeFactor;
+
+            bombs.push({
+                container, x: startX, y: startY,
+                vx: Math.cos(launchAngle) * launchSpeed, vy: Math.sin(launchAngle) * launchSpeed,
+                range: player.range, owner: player, explodeTime: Date.now() + BOMB_TIMER,
+                startTime: Date.now()
+            });
+            player.activeBombs++;
+        }
+
+        function updateBombs(time, delta) {
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                const b = bombs[i];
+                if (!b || !b.container) {
+                    bombs.splice(i, 1);
+                    continue;
+                }
+
+                // Movement (only if vx/vy are available)
+                if (b.vx !== undefined && b.vy !== undefined) {
+                    b.x += b.vx * delta;
+                    b.y += b.vy * delta;
+                }
+
+                // Wall bounce
+                if (b.x < 15 || b.x > GAME_WIDTH - 15) {
+                    b.vx *= -1;
+                    b.x = Phaser.Math.Clamp(b.x, 16, GAME_WIDTH - 16);
+                }
+                if (b.y < 15 || b.y > GAME_HEIGHT - 15) {
+                    b.vy *= -1;
+                    b.y = Phaser.Math.Clamp(b.y, 16, GAME_HEIGHT - 16);
+                }
+
+                // Obstacle bounce
+                for (const obs of obstacles) {
+                    if (!obs || !obs.obj || !obs.obj.active) continue;
+                    if (b.x + 10 > obs.x - obs.w / 2 && b.x - 10 < obs.x + obs.w / 2 &&
+                        b.y + 10 > obs.y - obs.h / 2 && b.y - 10 < obs.y + obs.h / 2) {
+
+                        if (Math.abs(b.x - obs.x) / obs.w > Math.abs(b.y - obs.y) / obs.h) {
+                            b.vx *= -1;
+                            b.x += b.vx * 2;
+                        } else {
+                            b.vy *= -1;
+                            b.y += b.vy * 2;
+                        }
+                        break;
+                    }
+                }
+
+                if (b.container && b.container.active) {
+                    b.container.x = b.x;
+                    b.container.y = b.y;
+
+                    // ARC EFFECT: Scale up in middle (parabola simulation)
+                    const now = Date.now();
+                    let t = (now - b.startTime) / BOMB_TIMER;
+
+                    t = Phaser.Math.Clamp(t, 0, 1);
+                    const scaleEffect = 1 + Math.sin(t * Math.PI) * 1.5; // Much higher arc (1.0 -> 2.5 -> 1.0)
+                    b.container.setScale(scaleEffect);
+                }
+
+                if (!isOnline && Date.now() > b.explodeTime) {
+                    try {
+                        const { x, y, range, owner, container } = b;
+                        bombs.splice(i, 1);
+
+                        if (container) container.destroy();
+                        if (owner && typeof owner.activeBombs === 'number') {
+                            owner.activeBombs = Math.max(0, owner.activeBombs - 1);
+                        }
+
+                        createExplosionEffect(x, y, range);
+
+                        // Damage players
+                        [player1, player2].forEach(p => {
+                            if (!p || !p.container || !p.container.active) return;
+                            const d = Phaser.Math.Distance.Between(x, y, p.container.x, p.container.y);
+                            if (d < range && !p.isInvulnerable) {
+                                const dmg = MIN_DAMAGE + (MAX_DAMAGE - MIN_DAMAGE) * (1 - d / range);
+                                p.hp -= dmg;
+                                flashPlayer(p);
+                            }
+                        });
+                    } catch (err) {
+                        console.error("Collision error:", err);
+                    }
+                }
+            }
+        }
+
+        function createExplosionEffect(x, y, range) {
+            if (!gameScene) return;
+
+            try {
+                // 1. Damage Radius Ring (Tactical Indicator)
+                const ring = gameScene.add.circle(x, y, range, 0xFF0000, 0);
+                ring.setStrokeStyle(3, 0xFF0000, 0.8);
+                gameScene.tweens.add({
+                    targets: ring,
+                    alpha: 0,
+                    duration: 600,
+                    onComplete: () => ring.destroy()
+                });
+
+                // 2. Fire Core (White-Yellow-Orange-Red)
+                const colors = [0xFFFFFF, 0xFFFF00, 0xFFA500, 0xFF4500];
+                colors.forEach((color, i) => {
+                    const spark = gameScene.add.circle(x, y, range * 0.2, color, 1);
+                    gameScene.tweens.add({
+                        targets: spark,
+                        scale: (5 - i) * 1.2,
+                        alpha: 0,
+                        duration: 300 + (i * 100),
+                        delay: i * 20,
+                        onComplete: () => spark.destroy()
+                    });
+                });
+
+                // 3. Smoke Particles (Subtle)
+                for (let i = 0; i < 8; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = Math.random() * range;
+                    const smoke = gameScene.add.circle(x + Math.cos(angle) * dist, y + Math.sin(angle) * dist, 10, 0x333333, 0.4);
+                    gameScene.tweens.add({
+                        targets: smoke,
+                        y: smoke.y - 40,
+                        alpha: 0,
+                        duration: 800,
+                        onComplete: () => smoke.destroy()
+                    });
+                }
+
+                // 2. Damage obstacles
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    const obs = obstacles[i];
+                    if (!obs || !obs.obj || !obs.obj.active) {
+                        obstacles.splice(i, 1);
+                        continue;
+                    }
+
+                    const dist = Phaser.Math.Distance.Between(x, y, obs.x, obs.y);
+                    if (dist < (range || 120) + 30) {
+                        obs.hp -= 20;
+
+                        if (obs.hp <= 0) {
+                            if (obs.obj) obs.obj.destroy();
+                            spawnPowerup(obs.x, obs.y);
+                            obstacles.splice(i, 1);
+                        } else {
+                            updateObstacleCracks(obs);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Explosion effect error:", err);
+            }
+        }
+
+        function flashPlayer(p) { gameScene.tweens.add({ targets: p.sprite, alpha: 0.2, duration: 60, yoyo: true, repeat: 3 }); }
+
+        function spawnPowerup(atX, atY) {
+            const type = Object.keys(POWERUP_TYPES)[Phaser.Math.Between(0, 4)];
+            const x = atX !== undefined ? atX : Phaser.Math.Between(60, GAME_WIDTH - 60);
+            const y = atY !== undefined ? atY : Phaser.Math.Between(60, GAME_HEIGHT - 60);
+            const b = gameScene.add.circle(x, y, 18, 0x0F1210, 0.8).setStrokeStyle(2, POWERUP_TYPES[type].color);
+            const t = gameScene.add.text(x, y, POWERUP_TYPES[type].symbol, { fontSize: '22px' }).setOrigin(0.5);
+            powerups.push({ x, y, type, objs: [b, t] });
+        }
+
+        function checkCollisions(player, time) {
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                if (Phaser.Math.Distance.Between(player.container.x, player.container.y, powerups[i].x, powerups[i].y) < 35) {
+                    const p = powerups.splice(i, 1)[0];
+                    p.objs.forEach(o => o.destroy());
+                    if (p.type === 'HEALTH') player.hp = Math.min(100, player.hp + 30);
+                    else if (p.type === 'MULTI_BOMB') player.multiBombTimers.push(time + 10000);
+                    else player.powerups[p.type] = time + POWERUP_TYPES[p.type].duration;
+                }
+            }
+        }
+
+        function endGame() {
+            if (timerInterval) clearInterval(timerInterval);
+            updateUI();
+            let msg = "¡EMPATE!";
+            if (player1.hp <= 0 && player2.hp <= 0) msg = "¡EMPATE!";
+            else if (player1.hp > 0) msg = "¡JUGADOR 1 GANA!";
+            else msg = player2.isBot ? "¡EL BOT GANA!" : "¡JUGADOR 2 GANA!";
+
+            document.getElementById('winner-text').innerText = msg;
+            document.getElementById('game-over').style.display = 'flex';
+            gameScene.scene.pause();
+        }
+    </script>
+</body>
+
+</html>
