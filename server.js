@@ -548,9 +548,13 @@ io.on('connection', (socket) => {
                         const penalty = -30;
                         const reward = 15;
 
-                        // Update DB
-                        if (quitter && quitter.dbId) db.run("UPDATE users SET trophies = trophies + ? WHERE id = ?", [penalty, quitter.dbId]);
-                        if (winner.dbId) db.run("UPDATE users SET trophies = trophies + ? WHERE id = ?", [reward, winner.dbId]);
+                        // Update DB (Supabase)
+                        if (quitter && quitter.dbId) {
+                            supabase.rpc('increment_trophies', { user_id: quitter.dbId, delta: penalty }).then(() => { });
+                        }
+                        if (winner.dbId) {
+                            supabase.rpc('increment_trophies', { user_id: winner.dbId, delta: reward }).then(() => { });
+                        }
 
                         const changes = {};
                         changes[winnerId] = reward;
