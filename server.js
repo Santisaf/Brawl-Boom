@@ -77,7 +77,13 @@ const POWERUP_TYPES = {
     RANGE: { duration: 10000 },
     MULTI_BOMB: { duration: 10000 },
     SHIELD: { duration: 8000 },
-    HEALTH: { duration: 0 }
+    HEALTH: { duration: 0 },
+    INVIS: { duration: 6000 },
+    NO_BOMB: { duration: 5000 },
+    FREEZE: { duration: 3000 },
+    SLOW: { duration: 6000 },
+    REVERSE: { duration: 7000 },
+    HOMING: { duration: 0 }
 };
 
 // Game State
@@ -89,6 +95,7 @@ class GameRoom {
         this.players = {}; // socketId -> data
         this.bombs = [];
         this.powerups = [];
+        this.trapBombs = [];
         this.nextPowerupTime = Infinity; // Desactivar spawn aleatorio
         this.gameStarted = false;
         this.timeLeft = 120;
@@ -120,7 +127,8 @@ class GameRoom {
             powerups: {},
             multiBombTimers: [],
             bombCharge: 0,
-            isCharging: false
+            isCharging: false,
+            homingBombs: 0
         };
 
         socket.join(this.id);
@@ -129,15 +137,17 @@ class GameRoom {
             this.gameStarted = true;
             // Generate and sync obstacles
             this.obstacles = this.createLevelObstacles();
+            this.trapBombs = this.createLevelTrapBombs();
 
-            // Send matchFound to both players with obstacles
+            // Send matchFound to both players with obstacles and trapBombs
             Object.values(this.players).forEach(p => {
                 const playerSocket = io.sockets.sockets.get(p.id);
                 if (playerSocket) {
                     playerSocket.emit('matchFound', {
                         roomId: this.id,
                         players: this.players,
-                        obstacles: this.obstacles
+                        obstacles: this.obstacles,
+                        trapBombs: this.trapBombs
                     });
                 }
             });
@@ -150,29 +160,29 @@ class GameRoom {
 
     createLevelObstacles() {
         const obs = [];
-        const targetCount = 16;
-        const maxAttempts = 100;
+        const targetCount = 30;
+        const maxAttempts = 200;
 
         for (let i = 0; i < targetCount; i++) {
             let foundSpot = false;
             let attempt = 0;
             while (!foundSpot && attempt < maxAttempts) {
                 attempt++;
-                const w = 60;
-                const h = 60;
+                const w = 50;
+                const h = 50;
                 const x = Math.floor(Math.random() * (GAME_WIDTH - 301)) + 150;
-                const y = Math.floor(Math.random() * (GAME_HEIGHT - 301)) + 150;
+                const y = Math.floor(Math.random() * (GAME_HEIGHT - 161)) + 80;
 
                 // Distance to players
                 const distP1 = Math.sqrt((x - 100) ** 2 + (y - 400) ** 2);
                 const distP2 = Math.sqrt((x - 1500) ** 2 + (y - 400) ** 2);
-                if (distP1 < 150 || distP2 < 150) continue;
+                if (distP1 < 120 || distP2 < 120) continue;
 
                 // Overlap check
                 let overlap = false;
                 for (const o of obs) {
-                    if (x + w / 2 + 15 > o.x - o.w / 2 && x - w / 2 - 15 < o.x + o.w / 2 &&
-                        y + h / 2 + 15 > o.y - o.h / 2 && y - h / 2 - 15 < o.y + o.h / 2) {
+                    if (x + w / 2 + 10 > o.x - o.w / 2 && x - w / 2 - 10 < o.x + o.w / 2 &&
+                        y + h / 2 + 10 > o.y - o.h / 2 && y - h / 2 - 10 < o.y + o.h / 2) {
                         overlap = true;
                         break;
                     }
@@ -187,15 +197,53 @@ class GameRoom {
         return obs;
     }
 
+    createLevelTrapBombs() {
+        const traps = [];
+        const count = 10;
+        const maxAttempts = 200;
+
+        for (let i = 0; i < count; i++) {
+            let found = false;
+            let attempt = 0;
+            while (!found && attempt < maxAttempts) {
+                attempt++;
+                const x = Math.floor(Math.random() * (GAME_WIDTH - 200)) + 100;
+                const y = Math.floor(Math.random() * (GAME_HEIGHT - 200)) + 100;
+
+                // Check distance to players
+                const distP1 = Math.sqrt((x - 100) ** 2 + (y - 400) ** 2);
+                const distP2 = Math.sqrt((x - 1500) ** 2 + (y - 400) ** 2);
+                if (distP1 < 200 || distP2 < 200) continue;
+
+                // Check obstacles
+                let onObs = false;
+                for (const o of this.obstacles) {
+                    if (x > o.x - o.w / 2 - 30 && x < o.x + o.w / 2 + 30 &&
+                        y > o.y - o.h / 2 - 30 && y < o.y + o.h / 2 + 30) {
+                        onObs = true; break;
+                    }
+                }
+                if (onObs) continue;
+
+                if (traps.some(t => Math.sqrt((t.x - x) ** 2 + (t.y - y) ** 2) < 100)) continue;
+
+                traps.push({ id: Date.now() + i + Math.random(), x, y });
+                found = true;
+            }
+        }
+        return traps;
+    }
+
     handleInput(socketId, input) {
         const p = this.players[socketId];
         if (!p || !this.gameStarted) return;
 
         let dx = 0, dy = 0;
-        if (input.up) dy -= 1;
-        if (input.down) dy += 1;
-        if (input.left) dx -= 1;
-        if (input.right) dx += 1;
+        const isReversed = p.powerups['REVERSE'];
+        if (input.up) isReversed ? dy += 1 : dy -= 1;
+        if (input.down) isReversed ? dy -= 1 : dy += 1;
+        if (input.left) isReversed ? dx += 1 : dx -= 1;
+        if (input.right) isReversed ? dx -= 1 : dx += 1;
 
         if (dx !== 0 || dy !== 0) {
             const len = Math.sqrt(dx * dx + dy * dy);
@@ -226,13 +274,13 @@ class GameRoom {
             p.rotation = Math.atan2(dy, dx) + Math.PI / 2;
         }
 
-        // Bounds - Clamp BEFORE placing bomb to match visual position
+        // Bounds
         p.x = Math.max(30, Math.min(GAME_WIDTH - 30, p.x));
         p.y = Math.max(30, Math.min(GAME_HEIGHT - 30, p.y));
 
-        if (input.bomb && p.activeBombs < p.maxBombs) {
+        if (input.bomb && p.activeBombs < p.maxBombs && !p.powerups['NO_BOMB']) {
             p.isCharging = true;
-            p.bombCharge = Math.min(1000, (p.bombCharge || 0) + 18); // Incrementar carga
+            p.bombCharge = Math.min(1000, (p.bombCharge || 0) + 18);
         } else {
             if (p.isCharging) {
                 this.placeBomb(p, p.bombCharge / 1000);
@@ -246,12 +294,10 @@ class GameRoom {
         const now = Date.now();
         const launchAngle = player.rotation - Math.PI / 2;
 
-        // Carga mínima de 0.1, máxima escalada por rango
         const minSpeed = 0.1;
         const maxSpeed = (player.range / BOMB_TIMER) * 3.5;
         const launchSpeed = minSpeed + (maxSpeed - minSpeed) * chargeFactor;
 
-        // Offset calculation to match visual held bomb (21, -8)
         const offX = 21;
         const offY = -8;
         const cos = Math.cos(player.rotation);
@@ -267,9 +313,11 @@ class GameRoom {
             vy: Math.sin(launchAngle) * launchSpeed,
             ownerId: player.id,
             range: player.range,
-            explodeTime: now + BOMB_TIMER,
-            startTime: now // Pass startTime to client for perfect arc effect
+            explodeTime: now + (player.homingBombs > 0 ? 5000 : BOMB_TIMER),
+            startTime: now,
+            homing: player.homingBombs > 0
         };
+        if (player.homingBombs > 0) player.homingBombs--;
         this.bombs.push(bomb);
         player.activeBombs++;
     }
@@ -278,56 +326,90 @@ class GameRoom {
         if (!this.gameStarted) return;
 
         const now = Date.now();
+        const delta = 1000 / 60;
 
         // Update Bombs
-        const delta = 1000 / 60;
         this.bombs = this.bombs.filter(b => {
             if (now >= b.explodeTime) {
                 this.explode(b);
                 return false;
             }
 
+            // Powerup impact
+            for (let j = this.powerups.length - 1; j >= 0; j--) {
+                const pw = this.powerups[j];
+                const d = Math.sqrt((b.x - pw.x) ** 2 + (b.y - pw.y) ** 2);
+                if (d < 25) {
+                    this.explode({ x: pw.x, y: pw.y, range: b.range * 0.7, ownerId: null });
+                    this.powerups.splice(j, 1);
+                    this.explode(b);
+                    return false;
+                }
+            }
+
+            // Trap impact
+            for (let j = this.trapBombs.length - 1; j >= 0; j--) {
+                const tb = this.trapBombs[j];
+                const d = Math.sqrt((b.x - tb.x) ** 2 + (b.y - tb.y) ** 2);
+                if (d < 25) {
+                    this.explode({ x: tb.x, y: tb.y, range: BASE_EXPLOSION_RADIUS, ownerId: null });
+                    this.trapBombs.splice(j, 1);
+                    this.explode(b);
+                    return false;
+                }
+            }
+
             // Movement
+            if (b.homing) {
+                const targetId = Object.keys(this.players).find(id => id !== b.ownerId);
+                const target = this.players[targetId];
+                if (target) {
+                    const angle = Math.atan2(target.y - b.y, target.x - b.x);
+                    const steerFactor = 0.08;
+                    b.vx += (Math.cos(angle) * 0.5 - b.vx) * steerFactor;
+                    b.vy += (Math.sin(angle) * 0.5 - b.vy) * steerFactor;
+                    if (Math.sqrt((target.x - b.x) ** 2 + (target.y - b.y) ** 2) < 30) {
+                        this.explode(b);
+                        return false;
+                    }
+                }
+            }
+
             b.x += b.vx * delta;
             b.y += b.vy * delta;
 
-            // Bounce (simple wall)
             if (b.x < 15 || b.x > GAME_WIDTH - 15) b.vx *= -1;
             if (b.y < 15 || b.y > GAME_HEIGHT - 15) b.vy *= -1;
 
-            // Bounce (obstacles)
-            for (const obs of this.obstacles) {
-                if (b.x + 8 > obs.x - obs.w / 2 && b.x - 8 < obs.x + obs.w / 2 &&
-                    b.y + 8 > obs.y - obs.h / 2 && b.y - 8 < obs.y + obs.h / 2) {
-                    if (Math.abs(b.x - obs.x) / obs.w > Math.abs(b.y - obs.y) / obs.h) b.vx *= -1;
-                    else b.vy *= -1;
-                    break;
+            const flightTime = b.explodeTime - b.startTime;
+            const elapsed = now - b.startTime;
+            const t = elapsed / flightTime;
+            const isHigh = t > 0.25 && t < 0.75;
+
+            if (!isHigh) {
+                for (const obs of this.obstacles) {
+                    if (b.x + 8 > obs.x - obs.w / 2 && b.x - 8 < obs.x + obs.w / 2 &&
+                        b.y + 8 > obs.y - obs.h / 2 && b.y - 8 < obs.y + obs.h / 2) {
+                        if (Math.abs(b.x - obs.x) / obs.w > Math.abs(b.y - obs.y) / obs.h) b.vx *= -1;
+                        else b.vy *= -1;
+                        break;
+                    }
                 }
             }
 
             return true;
         });
 
-        // Update Powerups - Disabled periodic spawn
-        /*
-        if (now > this.nextPowerupTime) {
-            this.spawnPowerup();
-            this.nextPowerupTime = now + Math.random() * 4000 + 8000; // 8-12s
-        }
-        */
-
-        // Update Players (Timers)
         Object.values(this.players).forEach(p => this.updatePlayer(p, now));
-
-        // Check Powerup Collisions
+        this.checkTrapProximity();
         this.checkPowerupCollisions(now);
 
-        // Broadcast State
         io.to(this.id).emit('serverUpdate', {
             players: this.players,
             bombs: this.bombs,
             powerups: this.powerups,
-            obstacles: this.obstacles, // Include obstacles in the update
+            obstacles: this.obstacles,
+            trapBombs: this.trapBombs,
             timeLeft: this.timeLeft
         });
     }
@@ -337,20 +419,16 @@ class GameRoom {
         player.range = BASE_EXPLOSION_RADIUS;
         player.maxBombs = 1;
         player.isInvulnerable = false;
-
-        // Multi-bomb timers
         player.multiBombTimers = player.multiBombTimers.filter(expiry => now < expiry);
         player.maxBombs += player.multiBombTimers.length;
-
-        // Other powerups
         Object.keys(player.powerups).forEach(type => {
             if (now < player.powerups[type]) {
                 if (type === 'SPEED') player.speed = BASE_PLAYER_SPEED * 1.6;
                 if (type === 'RANGE') player.range = BASE_EXPLOSION_RADIUS * 1.5;
                 if (type === 'SHIELD') player.isInvulnerable = true;
-            } else {
-                delete player.powerups[type];
-            }
+                if (type === 'FREEZE') player.speed = 0;
+                if (type === 'SLOW') player.speed = BASE_PLAYER_SPEED * 0.5;
+            } else delete player.powerups[type];
         });
     }
 
@@ -362,20 +440,36 @@ class GameRoom {
         this.powerups.push({ id: Date.now() + Math.random(), x, y, type });
     }
 
+    checkTrapProximity() {
+        for (let i = this.trapBombs.length - 1; i >= 0; i--) {
+            const tb = this.trapBombs[i];
+            let exploded = false;
+            for (const pId in this.players) {
+                const p = this.players[pId];
+                if (Math.sqrt((p.x - tb.x) ** 2 + (p.y - tb.y) ** 2) < BASE_EXPLOSION_RADIUS / 2) {
+                    exploded = true; break;
+                }
+            }
+            if (exploded) {
+                const { x, y } = tb;
+                this.trapBombs.splice(i, 1);
+                this.explode({ x, y, range: BASE_EXPLOSION_RADIUS, ownerId: null });
+            }
+        }
+    }
+
     checkPowerupCollisions(now) {
         for (let i = this.powerups.length - 1; i >= 0; i--) {
             const pw = this.powerups[i];
             for (const pId in this.players) {
                 const p = this.players[pId];
-                const dist = Math.sqrt((p.x - pw.x) ** 2 + (p.y - pw.y) ** 2);
-                if (dist < 35) {
-                    if (pw.type === 'HEALTH') {
-                        p.hp = Math.min(100, p.hp + 30);
-                    } else if (pw.type === 'MULTI_BOMB') {
-                        p.multiBombTimers.push(now + POWERUP_TYPES.MULTI_BOMB.duration);
-                    } else {
-                        p.powerups[pw.type] = now + POWERUP_TYPES[pw.type].duration;
-                    }
+                if (Math.sqrt((p.x - pw.x) ** 2 + (p.y - pw.y) ** 2) < 35) {
+                    const opponent = Object.values(this.players).find(pl => pl.id !== pId);
+                    if (pw.type === 'HEALTH') p.hp = Math.min(100, p.hp + 30);
+                    else if (pw.type === 'MULTI_BOMB') p.multiBombTimers.push(now + POWERUP_TYPES.MULTI_BOMB.duration);
+                    else if (pw.type === 'HOMING') p.homingBombs = (p.homingBombs || 0) + 1;
+                    else if (['INVIS', 'SPEED', 'RANGE', 'SHIELD'].includes(pw.type)) p.powerups[pw.type] = now + POWERUP_TYPES[pw.type].duration;
+                    else if (opponent) opponent.powerups[pw.type] = now + POWERUP_TYPES[pw.type].duration;
                     this.powerups.splice(i, 1);
                     break;
                 }
@@ -386,87 +480,73 @@ class GameRoom {
     explode(bomb) {
         const owner = this.players[bomb.ownerId];
         if (owner) owner.activeBombs = Math.max(0, owner.activeBombs - 1);
-
         io.to(this.id).emit('explosion', { x: bomb.x, y: bomb.y, range: bomb.range });
-
-        // Damage players
         Object.values(this.players).forEach(p => {
             const dist = Math.sqrt((p.x - bomb.x) ** 2 + (p.y - bomb.y) ** 2);
             if (dist < bomb.range && !p.isInvulnerable) {
-                const dmg = MIN_DAMAGE + (MAX_DAMAGE - MIN_DAMAGE) * (1 - dist / bomb.range);
-                p.hp -= dmg;
+                p.hp -= MIN_DAMAGE + (MAX_DAMAGE - MIN_DAMAGE) * (1 - dist / bomb.range);
                 if (p.hp <= 0) this.endGame();
             }
         });
-
-        // Damage obstacles
+        for (let j = this.powerups.length - 1; j >= 0; j--) {
+            const pw = this.powerups[j];
+            if (Math.sqrt((pw.x - bomb.x) ** 2 + (pw.y - bomb.y) ** 2) < bomb.range) {
+                this.powerups.splice(j, 1);
+                this.explode({ x: pw.x, y: pw.y, range: bomb.range * 0.7, ownerId: null });
+            }
+        }
         this.obstacles = this.obstacles.filter(obs => {
-            const dist = Math.sqrt((obs.x - bomb.x) ** 2 + (obs.y - bomb.y) ** 2);
-            if (dist < bomb.range + 30) {
+            if (Math.sqrt((obs.x - bomb.x) ** 2 + (obs.y - bomb.y) ** 2) < bomb.range + 30) {
                 obs.hp -= 20;
-                if (obs.hp <= 0) {
-                    this.spawnPowerup(obs.x, obs.y);
-                    return false;
-                }
+                if (obs.hp <= 0) { this.spawnPowerup(obs.x, obs.y); return false; }
             }
             return true;
         });
+        for (let i = this.trapBombs.length - 1; i >= 0; i--) {
+            const tb = this.trapBombs[i];
+            if (Math.sqrt((tb.x - bomb.x) ** 2 + (tb.y - bomb.y) ** 2) < bomb.range) {
+                const { x, y } = tb;
+                this.trapBombs.splice(i, 1);
+                this.explode({ x, y, range: BASE_EXPLOSION_RADIUS, ownerId: null });
+            }
+        }
     }
 
     endGame() {
         this.gameStarted = false;
-
         let winnerId = null;
         let p1 = null, p2 = null;
         const playersArr = Object.values(this.players);
-
         if (playersArr.length === 2) {
             p1 = playersArr[0];
             p2 = playersArr[1];
             if (p1.hp > p2.hp) winnerId = p1.id;
             else if (p2.hp > p1.hp) winnerId = p2.id;
         }
-
-        // ELO Calculation
-        const K = 32;
-        const trophyChanges = {}; // socketId -> delta
-
+        const trophyChanges = {};
         if (p1 && p2 && winnerId !== null) {
-            // Determine actual scores
-            let s1 = 0.5, s2 = 0.5;
-            if (winnerId === p1.id) { s1 = 1; s2 = 0; }
-            else { s1 = 0; s2 = 1; }
-
-            // Calculate Expected
-            const expected1 = 1 / (1 + Math.pow(10, (p2.trophies - p1.trophies) / 400));
-            const expected2 = 1 / (1 + Math.pow(10, (p1.trophies - p2.trophies) / 400));
-
-            const delta1 = Math.round(K * (s1 - expected1));
-            const delta2 = Math.round(K * (s2 - expected2));
-
-            trophyChanges[p1.id] = delta1;
-            trophyChanges[p2.id] = delta2;
-
-            // Update DB (Supabase)
-            supabase.rpc('increment_trophies', { user_id: p1.dbId, delta: delta1 }).then(() => { });
-            supabase.rpc('increment_trophies', { user_id: p2.dbId, delta: delta2 }).then(() => { });
-
-            // Update local state for UI
-            p1.trophies += delta1;
-            p2.trophies += delta2;
+            let s1 = winnerId === p1.id ? 1 : 0;
+            let s2 = 1 - s1;
+            const exp1 = 1 / (1 + Math.pow(10, (p2.trophies - p1.trophies) / 400));
+            const exp2 = 1 / (1 + Math.pow(10, (p1.trophies - p2.trophies) / 400));
+            const d1 = Math.round(32 * (s1 - exp1));
+            const d2 = Math.round(32 * (s2 - exp2));
+            trophyChanges[p1.id] = d1;
+            trophyChanges[p2.id] = d2;
+            supabase.rpc('increment_trophies', { user_id: p1.dbId, delta: d1 }).then(() => { });
+            supabase.rpc('increment_trophies', { user_id: p2.dbId, delta: d2 }).then(() => { });
+            p1.trophies += d1;
+            p2.trophies += d2;
         } else if (p1 && p2) {
-            // Draw - No change usually, or small
             trophyChanges[p1.id] = 0;
             trophyChanges[p2.id] = 0;
         }
-
         io.to(this.id).emit('gameOver', {
             players: this.players,
             winnerId: winnerId,
             reason: 'FINISHED',
             trophyChanges: trophyChanges
         });
-
         clearInterval(this.loop);
         delete rooms[this.id];
     }
