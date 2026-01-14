@@ -68,9 +68,9 @@ const GAME_WIDTH = 1600; // Updated for 1600x800 arena
 const GAME_HEIGHT = 800;
 const BASE_PLAYER_SPEED = 4;
 const BOMB_TIMER = 1000;
-const BASE_EXPLOSION_RADIUS = 120;
-const MIN_DAMAGE = 10;
-const MAX_DAMAGE = 40;
+const BASE_EXPLOSION_RADIUS = 130;
+const MIN_DAMAGE = 0;
+const MAX_DAMAGE = 50;
 
 const POWERUP_TYPES = {
     SPEED: { duration: 8000 },
@@ -99,6 +99,9 @@ class GameRoom {
         this.nextPowerupTime = Infinity; // Desactivar spawn aleatorio
         this.gameStarted = false;
         this.timeLeft = 120;
+        this.matchStartTime = null;
+        this.bot = null;
+        this.botSpawning = false;
 
         this.loop = setInterval(() => this.update(), 1000 / 60);
     }
@@ -135,6 +138,7 @@ class GameRoom {
 
         if (Object.keys(this.players).length === 2) {
             this.gameStarted = true;
+            this.matchStartTime = Date.now();
             // Generate and sync obstacles
             this.obstacles = this.createLevelObstacles();
             this.trapBombs = this.createLevelTrapBombs();
@@ -322,11 +326,226 @@ class GameRoom {
         player.activeBombs++;
     }
 
+    spawnBot() {
+        if (this.bot || !this.gameStarted) return;
+
+        // Spawn centered if possible
+        let spawnX = GAME_WIDTH / 2;
+        let spawnY = GAME_HEIGHT / 2;
+
+        const isSafe = (x, y) => {
+            // Check obstacles
+            for (const obs of this.obstacles) {
+                if (x > obs.x - obs.w && x < obs.x + obs.w && y > obs.y - obs.h && y < obs.y + obs.h) return false;
+            }
+            // Check bombs
+            for (const b of this.bombs) {
+                if (Math.sqrt((x - b.x) ** 2 + (y - b.y) ** 2) < 80) return false;
+            }
+            return true;
+        };
+
+        if (!isSafe(spawnX, spawnY)) {
+            // Find nearby safe spot
+            let found = false;
+            for (let r = 50; r < 400 && !found; r += 50) {
+                for (let ang = 0; ang < Math.PI * 2 && !found; ang += Math.PI / 4) {
+                    let tx = spawnX + Math.cos(ang) * r;
+                    let ty = spawnY + Math.sin(ang) * r;
+                    if (isSafe(tx, ty)) {
+                        spawnX = tx;
+                        spawnY = ty;
+                        found = true;
+                    }
+                }
+            }
+        }
+
+        this.bot = {
+            id: 'bot_' + Date.now(),
+            username: 'BOT_TACTICO',
+            x: spawnX,
+            y: spawnY,
+            hp: 100,
+            rotation: 0,
+            speed: BASE_PLAYER_SPEED * 0.9,
+            range: BASE_EXPLOSION_RADIUS,
+            activeBombs: 0,
+            maxBombs: 2,
+            powerups: {},
+            multiBombTimers: [],
+            aiTimer: 0,
+            moveDir: { x: 0, y: 0 },
+            isBot: true
+        };
+    }
+
+    updateBot(now, delta) {
+        if (!this.bot) return;
+        const bot = this.bot;
+
+        if (now > bot.aiTimer) {
+            bot.aiTimer = now + Math.random() * 400 + 200;
+
+            // Find target (closest player)
+            let closestPlayer = null;
+            let minDist = Infinity;
+            for (const pId in this.players) {
+                const p = this.players[pId];
+                const d = Math.sqrt((bot.x - p.x) ** 2 + (bot.y - p.y) ** 2);
+                if (d < minDist) {
+                    minDist = d;
+                    closestPlayer = p;
+                }
+            }
+
+            if (closestPlayer) {
+                const angle = Math.atan2(closestPlayer.y - bot.y, closestPlayer.x - bot.x);
+                bot.moveDir.x = Math.cos(angle);
+                bot.moveDir.y = Math.sin(angle);
+
+                // Place bomb if close
+                if (minDist < 400 && bot.activeBombs < bot.maxBombs) {
+                    if (Math.random() < 0.65) {
+                        this.placeBomb(bot, 0.3 + Math.random() * 0.5);
+                    }
+                }
+            }
+        }
+
+        // Avoid bombs
+        for (const b of this.bombs) {
+            const d = Math.sqrt((bot.x - b.x) ** 2 + (bot.y - b.y) ** 2);
+            if (d < 180) {
+                const angle = Math.atan2(bot.y - b.y, bot.x - b.x);
+                bot.moveDir.x = Math.cos(angle);
+                bot.moveDir.y = Math.sin(angle);
+            }
+        }
+
+        // Avoid obstacles (simple repulsion)
+        for (const obs of this.obstacles) {
+            const dx = bot.x - obs.x;
+            const dy = bot.y - obs.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 60) {
+                bot.moveDir.x += dx / dist * 0.5;
+                bot.moveDir.y += dy / dist * 0.5;
+            }
+        }
+
+        let nextX = bot.x + bot.moveDir.x * bot.speed;
+        let nextY = bot.y + bot.moveDir.y * bot.speed;
+
+        // Wall collision
+        if (nextX < 30 || nextX > GAME_WIDTH - 30) {
+            bot.moveDir.x *= -1;
+            bot.aiTimer = 0; // Force redirection
+        }
+        if (nextY < 30 || nextY > GAME_HEIGHT - 30) {
+            bot.moveDir.y *= -1;
+            bot.aiTimer = 0; // Force redirection
+        }
+
+        bot.x += bot.moveDir.x * bot.speed;
+        bot.y += bot.moveDir.y * bot.speed;
+
+        // Player Collision & Contact Damage
+        for (const pId in this.players) {
+            const p = this.players[pId];
+            const dist = Math.sqrt((bot.x - p.x) ** 2 + (bot.y - p.y) ** 2);
+            if (dist < 40) {
+                // DEAL DAMAGE
+                if (now > (bot.lastMeleeHit || 0)) {
+                    p.hp -= 5; // Melee damage
+                    bot.lastMeleeHit = now + 1000; // 1 sec cooldown per player
+                }
+
+                // KNOCKBACK (Elastic PUSH)
+                let angle = Math.atan2(bot.y - p.y, bot.x - p.x);
+                if (dist < 1) angle = Math.random() * Math.PI * 2;
+
+                const pushDist = (40 - dist) / 2 + 2;
+
+                // Push Bot
+                bot.x += Math.cos(angle) * pushDist;
+                bot.y += Math.sin(angle) * pushDist;
+
+                // Push Player (Inverse)
+                p.x -= Math.cos(angle) * pushDist;
+                p.y -= Math.sin(angle) * pushDist;
+
+                // POST-PUSH: Resolve obstacle collisions and BOUNDS
+                this.resolveEntityObstacles(bot);
+                this.resolveEntityObstacles(p);
+
+                // Bounds clamp after bot push
+                p.x = Math.max(30, Math.min(GAME_WIDTH - 30, p.x));
+                p.y = Math.max(30, Math.min(GAME_HEIGHT - 30, p.y));
+                bot.x = Math.max(30, Math.min(GAME_WIDTH - 30, bot.x));
+                bot.y = Math.max(30, Math.min(GAME_HEIGHT - 30, bot.y));
+            }
+        }
+
+        bot.x = Math.max(30, Math.min(GAME_WIDTH - 30, bot.x));
+        bot.y = Math.max(30, Math.min(GAME_HEIGHT - 30, bot.y));
+
+        if (bot.moveDir.x !== 0 || bot.moveDir.y !== 0) {
+            bot.rotation = Math.atan2(bot.moveDir.y, bot.moveDir.x) + Math.PI / 2;
+        }
+    }
+
     update() {
         if (!this.gameStarted) return;
 
         const now = Date.now();
         const delta = 1000 / 60;
+
+        // Spawn bot after 1 minute
+        if (!this.bot && this.matchStartTime && (now - this.matchStartTime > 60000)) {
+            this.spawnBot();
+        }
+
+        if (this.bot) {
+            this.updateBot(now, delta);
+        }
+
+        // Player vs Player collision (Online)
+        const playerIds = Object.keys(this.players);
+        if (playerIds.length === 2) {
+            const p1 = this.players[playerIds[0]];
+            const p2 = this.players[playerIds[1]];
+            const dist = Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
+            if (dist < 40) {
+                // DEAL DAMAGE TO BOTH
+                if (now > (this.lastPlayerMeleeHit || 0)) {
+                    p1.hp -= 5;
+                    p2.hp -= 5;
+                    this.lastPlayerMeleeHit = now + 1000;
+                    if (p1.hp <= 0 || p2.hp <= 0) this.endGame();
+                }
+
+                // KNOCKBACK (Elastic PUSH)
+                let angle = Math.atan2(p1.y - p2.y, p1.x - p2.x);
+                if (dist < 1) angle = Math.random() * Math.PI * 2;
+                const pushDist = (40 - dist) / 2 + 2;
+
+                p1.x += Math.cos(angle) * pushDist;
+                p1.y += Math.sin(angle) * pushDist;
+                p2.x -= Math.cos(angle) * pushDist;
+                p2.y -= Math.sin(angle) * pushDist;
+
+                // POST-PUSH: Resolve obstacle collisions so they don't get stuck
+                this.resolveEntityObstacles(p1);
+                this.resolveEntityObstacles(p2);
+
+                // Bounds sync
+                p1.x = Math.max(30, Math.min(GAME_WIDTH - 30, p1.x));
+                p1.y = Math.max(30, Math.min(GAME_HEIGHT - 30, p1.y));
+                p2.x = Math.max(30, Math.min(GAME_WIDTH - 30, p2.x));
+                p2.y = Math.max(30, Math.min(GAME_HEIGHT - 30, p2.y));
+            }
+        }
 
         // Update Bombs
         this.bombs = this.bombs.filter(b => {
@@ -410,7 +629,8 @@ class GameRoom {
             powerups: this.powerups,
             obstacles: this.obstacles,
             trapBombs: this.trapBombs,
-            timeLeft: this.timeLeft
+            timeLeft: this.timeLeft,
+            bot: this.bot
         });
     }
 
@@ -450,6 +670,11 @@ class GameRoom {
                     exploded = true; break;
                 }
             }
+            if (!exploded && this.bot) {
+                if (Math.sqrt((this.bot.x - tb.x) ** 2 + (this.bot.y - tb.y) ** 2) < BASE_EXPLOSION_RADIUS / 2) {
+                    exploded = true;
+                }
+            }
             if (exploded) {
                 const { x, y } = tb;
                 this.trapBombs.splice(i, 1);
@@ -474,13 +699,67 @@ class GameRoom {
                     break;
                 }
             }
+            // Bot powerup collision
+            if (this.bot && this.powerups[i]) {
+                const b = this.bot;
+                if (Math.sqrt((b.x - this.powerups[i].x) ** 2 + (b.y - this.powerups[i].y) ** 2) < 35) {
+                    if (this.powerups[i].type === 'HEALTH') b.hp = Math.min(100, b.hp + 30);
+                    this.powerups.splice(i, 1);
+                }
+            }
+        }
+    }
+
+    incrementTrophies(dbId, delta) {
+        supabase.rpc('increment_trophies', { user_id: dbId, delta }).then(() => { });
+    }
+
+    resolveEntityObstacles(ent) {
+        const pRadius = 20;
+        for (const obs of this.obstacles) {
+            if (ent.x + pRadius > obs.x - obs.w / 2 && ent.x - pRadius < obs.x + obs.w / 2 &&
+                ent.y + pRadius > obs.y - obs.h / 2 && ent.y - pRadius < obs.y + obs.h / 2) {
+
+                // Entity is inside obstacle - Push it out to the nearest edge
+                const distLeft = (ent.x + pRadius) - (obs.x - obs.w / 2);
+                const distRight = (obs.x + obs.w / 2) - (ent.x - pRadius);
+                const distTop = (ent.y + pRadius) - (obs.y - obs.h / 2);
+                const distBottom = (obs.y + obs.h / 2) - (ent.y - pRadius);
+
+                const min = Math.min(distLeft, distRight, distTop, distBottom);
+
+                // Before applying, check if it pushes out of bounds. 
+                // If it does, we take the second best option.
+                let pushX = 0, pushY = 0;
+                if (min === distLeft) pushX = -distLeft;
+                else if (min === distRight) pushX = distRight;
+                else if (min === distTop) pushY = -distTop;
+                else if (min === distBottom) pushY = distBottom;
+
+                // Safety check: is the new position out of bounds?
+                if (ent.x + pushX < 30 || ent.x + pushX > GAME_WIDTH - 30 ||
+                    ent.y + pushY < 30 || ent.y + pushY > GAME_HEIGHT - 30) {
+                    // If it is, tries to push to the center of the arena instead
+                    const angToCenter = Math.atan2(GAME_HEIGHT / 2 - ent.y, GAME_WIDTH / 2 - ent.x);
+                    ent.x += Math.cos(angToCenter) * 10;
+                    ent.y += Math.sin(angToCenter) * 10;
+                } else {
+                    ent.x += pushX;
+                    ent.y += pushY;
+                }
+            }
         }
     }
 
     explode(bomb) {
-        const owner = this.players[bomb.ownerId];
-        if (owner) owner.activeBombs = Math.max(0, owner.activeBombs - 1);
+        const owner = bomb.ownerId === this.bot?.id ? this.bot : this.players[bomb.ownerId];
+        if (owner) {
+            owner.activeBombs = Math.max(0, owner.activeBombs - 1);
+        }
+
         io.to(this.id).emit('explosion', { x: bomb.x, y: bomb.y, range: bomb.range });
+
+        // Damage Players
         Object.values(this.players).forEach(p => {
             const dist = Math.sqrt((p.x - bomb.x) ** 2 + (p.y - bomb.y) ** 2);
             if (dist < bomb.range && !p.isInvulnerable) {
@@ -488,13 +767,29 @@ class GameRoom {
                 if (p.hp <= 0) this.endGame();
             }
         });
-        for (let j = this.powerups.length - 1; j >= 0; j--) {
-            const pw = this.powerups[j];
-            if (Math.sqrt((pw.x - bomb.x) ** 2 + (pw.y - bomb.y) ** 2) < bomb.range) {
-                this.powerups.splice(j, 1);
-                this.explode({ x: pw.x, y: pw.y, range: bomb.range * 0.7, ownerId: null });
+        if (this.bot) {
+            const b = this.bot;
+            const dist = Math.sqrt((b.x - bomb.x) ** 2 + (b.y - bomb.y) ** 2);
+            if (dist < bomb.range) {
+                b.hp -= MIN_DAMAGE + (MAX_DAMAGE - MIN_DAMAGE) * (1 - dist / bomb.range);
+                if (b.hp <= 0) {
+                    this.spawnPowerup(b.x, b.y);
+                    this.bot = null;
+                }
             }
         }
+        const powerupsToExplode = [];
+        for (let j = this.powerups.length - 1; j >= 0; j--) {
+            const pw = this.powerups[j];
+            if (!pw) continue;
+            const d = Math.sqrt((pw.x - bomb.x) ** 2 + (pw.y - bomb.y) ** 2);
+            if (d < bomb.range) {
+                powerupsToExplode.push(this.powerups.splice(j, 1)[0]);
+            }
+        }
+        powerupsToExplode.forEach(pw => {
+            this.explode({ x: pw.x, y: pw.y, range: bomb.range * 0.7, ownerId: null });
+        });
         this.obstacles = this.obstacles.filter(obs => {
             if (Math.sqrt((obs.x - bomb.x) ** 2 + (obs.y - bomb.y) ** 2) < bomb.range + 30) {
                 obs.hp -= 20;
@@ -502,14 +797,18 @@ class GameRoom {
             }
             return true;
         });
+        const trapsToExplode = [];
         for (let i = this.trapBombs.length - 1; i >= 0; i--) {
             const tb = this.trapBombs[i];
-            if (Math.sqrt((tb.x - bomb.x) ** 2 + (tb.y - bomb.y) ** 2) < bomb.range) {
-                const { x, y } = tb;
-                this.trapBombs.splice(i, 1);
-                this.explode({ x, y, range: BASE_EXPLOSION_RADIUS, ownerId: null });
+            if (!tb) continue;
+            const d = Math.sqrt((tb.x - bomb.x) ** 2 + (tb.y - bomb.y) ** 2);
+            if (d < bomb.range) {
+                trapsToExplode.push(this.trapBombs.splice(i, 1)[0]);
             }
         }
+        trapsToExplode.forEach(tb => {
+            this.explode({ x: tb.x, y: tb.y, range: BASE_EXPLOSION_RADIUS, ownerId: null });
+        });
     }
 
     endGame() {

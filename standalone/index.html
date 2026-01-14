@@ -349,7 +349,7 @@
             transform: translate(-50%, -50%);
             z-index: 5000;
             pointer-events: auto;
-            background: rgba(15, 18, 16, 0.95);
+            background: rgba(15, 18, 16, 0.75);
             border: 2px solid var(--color-olive);
             padding: 20px;
             border-radius: 10px;
@@ -570,6 +570,11 @@
             CANCELAR</p>
     </div>
 
+    <div
+        style="position: fixed; bottom: 10px; right: 15px; color: black; font-family: 'Stardos Stencil'; font-size: 0.9rem; z-index: 9999; pointer-events: none;">
+        santisaf v3.2
+    </div>
+
     <script>
         const TOP_BAR_HEIGHT = 50;
         const GAME_WIDTH = 1600;
@@ -578,9 +583,9 @@
         const BASE_PLAYER_SPEED = 4;
         const BASE_BOMB_COOLDOWN = 1200;
         const BOMB_TIMER = 1000;
-        const BASE_EXPLOSION_RADIUS = 125;
-        const MIN_DAMAGE = 10;
-        const MAX_DAMAGE = 40;
+        const BASE_EXPLOSION_RADIUS = 130;
+        const MIN_DAMAGE = 0;
+        const MAX_DAMAGE = 50;
         const GAME_DURATION = 120; // 2 minutes in seconds
 
         const POWERUP_TYPES = {
@@ -614,6 +619,7 @@
         let onlineTrapBombsData = null;
         let onlineObstaclesData = null;
         let obstacles = [];
+        let onlineBot = null;
 
         // Auth State
         let currentUser = null;
@@ -737,6 +743,10 @@
             trapBombs = [];
             onlineTrapBombsData = null;
             onlineObstaclesData = null;
+            if (onlineBot) {
+                if (onlineBot.container) onlineBot.container.destroy();
+                onlineBot = null;
+            }
             gameTimeRemaining = GAME_DURATION;
 
             // 5. Reset UI Elements
@@ -747,6 +757,9 @@
             document.getElementById('leaderboard-overlay').style.display = 'none';
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('menu-screen').style.display = 'block';
+
+            // Refresh UI to show updated trophies
+            updateProfileUI();
 
             // Clean up UI markers
             document.getElementById('p1-powerups').innerHTML = '';
@@ -790,7 +803,15 @@
 
             socket.on('connect', () => {
                 socket.emit('identify', currentUser);
-                socket.emit('findMatch'); // socket.user is set on server by identify
+            });
+
+            socket.on('identified', (data) => {
+                if (data && data.trophies !== undefined && currentUser) {
+                    currentUser.trophies = data.trophies;
+                    localStorage.setItem('brawl_boom_user', JSON.stringify(currentUser));
+                    updateProfileUI();
+                }
+                socket.emit('findMatch');
             });
 
             socket.on('authError', (msg) => {
@@ -893,7 +914,10 @@
 
                 document.getElementById('ui-layer').style.pointerEvents = 'auto';
                 document.getElementById('game-over').style.display = 'flex';
-                if (gameScene) gameScene.scene.pause();
+                if (gameScene) {
+                    gameScene.cameras.main.resetFX();
+                    gameScene.scene.pause();
+                }
             });
         }
 
@@ -1043,7 +1067,10 @@
             else if (player2.hp > player1.hp) msg = player2.isBot ? "¡EL BOT GANA!" : "¡JUGADOR 2 GANA!";
             document.getElementById('winner-text').innerText = msg;
             document.getElementById('game-over').style.display = 'flex';
-            if (gameScene) gameScene.scene.pause();
+            if (gameScene) {
+                gameScene.cameras.main.resetFX();
+                gameScene.scene.pause();
+            }
         }
 
         const config = {
@@ -1092,6 +1119,10 @@
             player2.container.rotation = -Math.PI / 2;
 
             player2.isBot = (gameMode === 'bot');
+            if (player2.isBot) {
+                player2.speed = BASE_PLAYER_SPEED * 0.9;
+                player2.maxBombs = 2;
+            }
             if (!player2.isBot && !isOnline) {
                 player2.keys = {
                     up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP),
@@ -1120,7 +1151,9 @@
                 const body = scene.add.rectangle(0, 0, d.w, d.h, 0x222222).setStrokeStyle(3, 0x444444);
                 const cracks = scene.add.graphics().setVisible(false);
                 container.add([body, cracks]);
-                obstacles.push({ id: d.id, x: d.x, y: d.y, w: d.w, h: d.h, obj: container, body: body, cracks: cracks, hp: d.hp });
+                const obs = { id: d.id, x: d.x, y: d.y, w: d.w, h: d.h, obj: container, body: body, cracks: cracks, hp: d.hp };
+                obstacles.push(obs);
+                updateObstacleCracks(obs);
             });
         }
 
@@ -1307,6 +1340,7 @@
                 if (player2.isBot) updateBot(player2, player1, time);
                 else movePlayer(player2);
 
+                checkPlayerPlayerCollision(time);
                 checkCollisions(player1, time);
                 checkCollisions(player2, time);
                 checkTrapProximity(time);
@@ -1385,6 +1419,19 @@
 
                 // Reiniciar visibilidad antes de aplicar powerups
                 target.container.setAlpha(1);
+
+                // Detect Damage for Juice
+                if (target.hp < (target.lastHp || 100)) {
+                    const dmg = (target.lastHp || 100) - target.hp;
+                    showFloatingDamage(target.container.x, target.container.y, Math.round(dmg));
+
+                    // Flash if it's a player
+                    if (target === player1 || target === player2) {
+                        // Flash red purely for damage impact
+                        flashScreen(0xFF0000, 0.3);
+                    }
+                }
+                target.lastHp = target.hp;
             });
 
 
@@ -1464,6 +1511,7 @@
                     if (obs.obj) obs.obj.destroy();
                     obstacles.splice(i, 1);
                 } else if (obs.hp !== serverObs.hp) {
+                    obs.hp = serverObs.hp;
                     updateObstacleCracks(obs);
                 }
             }
@@ -1475,6 +1523,43 @@
                     if (tb.obj) tb.obj.destroy();
                     trapBombs.splice(i, 1);
                 }
+            }
+
+            // Sync Online Bot
+            if (state.bot) {
+                if (!onlineBot) {
+                    onlineBot = createPlayer(gameScene, state.bot.x, state.bot.y, 0xFF0000, 'bot_sprite');
+                    onlineBot.prevHp = state.bot.hp;
+                }
+
+                // DAMAGE DETECTION FOR BOT
+                if (state.bot.hp < onlineBot.prevHp) {
+                    const dmg = onlineBot.prevHp - state.bot.hp;
+                    showFloatingDamage(onlineBot.container.x, onlineBot.container.y, Math.round(dmg));
+                    flashPlayer(onlineBot);
+                }
+
+                onlineBot.container.x = state.bot.x;
+                onlineBot.container.y = state.bot.y;
+                onlineBot.container.rotation = state.bot.rotation;
+                onlineBot.hp = state.bot.hp;
+                onlineBot.prevHp = state.bot.hp;
+
+                // Visual updates for bot
+                if (onlineBot.heldBomb) onlineBot.heldBomb.setVisible(state.bot.activeBombs < state.bot.maxBombs);
+
+                if (state.bot.moveDir && (state.bot.moveDir.x !== 0 || state.bot.moveDir.y !== 0)) {
+                    onlineBot.animStep = (onlineBot.animStep || 0) + 0.15;
+                    onlineBot.sprite.rotation = Math.sin(onlineBot.animStep) * 0.15;
+                    onlineBot.sprite.y = Math.abs(Math.cos(onlineBot.animStep)) * -4;
+                } else {
+                    onlineBot.sprite.y = 0; onlineBot.sprite.rotation = 0;
+                }
+            } else if (onlineBot) {
+                // Death effect for online bot
+                createExplosionEffect(onlineBot.container.x, onlineBot.container.y, 60);
+                onlineBot.container.destroy();
+                onlineBot = null;
             }
         }
 
@@ -1683,11 +1768,11 @@
                 bot.patrolPoint = { x: bot.container.x, y: bot.container.y };
             }
 
-            // Cambiar de estrategia periódicamente (cada 3-6 segundos)
+            // Cambiar de estrategia periódicamente (cada 2-4 segundos) con sesgo ofensivo
             if (time > bot.stratTimer) {
-                const modes = ['AGGRESSIVE', 'DEFENSIVE', 'PATROL', 'STALKER'];
+                const modes = ['AGGRESSIVE', 'AGGRESSIVE', 'STALKER', 'PATROL']; // Más probabilidad de AGGRESSIVE
                 bot.stratMode = modes[Math.floor(Math.random() * modes.length)];
-                bot.stratTimer = time + Phaser.Math.Between(3000, 6000);
+                bot.stratTimer = time + Phaser.Math.Between(2000, 4000);
 
                 if (bot.stratMode === 'PATROL') {
                     bot.patrolPoint = {
@@ -1710,7 +1795,7 @@
                     bot.aiTimer = time + 1000;
                 }
             } else if (time > bot.aiTimer) {
-                bot.aiTimer = time + Phaser.Math.Between(400, 900);
+                bot.aiTimer = time + Phaser.Math.Between(200, 500);
 
                 const dist = Phaser.Math.Distance.Between(bot.container.x, bot.container.y, target.container.x, target.container.y);
                 const angleToTarget = Phaser.Math.Angle.Between(bot.container.x, bot.container.y, target.container.x, target.container.y);
@@ -1760,7 +1845,7 @@
                             break;
                     }
 
-                    if (dist < 500 && bot.activeBombs < bot.maxBombs && Math.random() < 0.4) {
+                    if (dist < 500 && bot.activeBombs < bot.maxBombs && Math.random() < 0.65) {
                         const charge = Phaser.Math.Clamp(dist / 550 + (Math.random() * 0.3), 0.1, 1);
                         placeBomb(bot, time, charge);
                     }
@@ -1933,6 +2018,12 @@
                     const dmg = MIN_DAMAGE + (MAX_DAMAGE - MIN_DAMAGE) * (1 - d / range);
                     p.hp -= dmg;
                     flashPlayer(p);
+                    showFloatingDamage(p.container.x, p.container.y, Math.round(dmg));
+
+                    // Screen Flash and Shake if it's a player being hit
+                    if (p === player1 || (p === player2 && !player2.isBot)) {
+                        flashScreen(0xFF0000, 0.2 + (dmg / 100)); // More opacity for more damage
+                    }
                 }
             });
 
@@ -2021,6 +2112,8 @@
                     onComplete: () => ring.destroy()
                 });
 
+                // Screen shake removed as per user request
+
                 // 2. Fire Core (White-Yellow-Orange-Red)
                 const colors = [0xFFFFFF, 0xFFFF00, 0xFFA500, 0xFF4500];
                 colors.forEach((color, i) => {
@@ -2095,13 +2188,140 @@
             if (timerInterval) clearInterval(timerInterval);
             updateUI();
             let msg = "¡EMPATE!";
-            if (player1.hp <= 0 && player2.hp <= 0) msg = "¡EMPATE!";
-            else if (player1.hp > 0) msg = "¡JUGADOR 1 GANA!";
-            else msg = player2.isBot ? "¡EL BOT GANA!" : "¡JUGADOR 2 GANA!";
+            if (player1.hp <= 0 && player2.hp <= 0) {
+                msg = "¡EMPATE!";
+                createExplosionEffect(player1.container.x, player1.container.y, 80);
+                createExplosionEffect(player2.container.x, player2.container.y, 80);
+            } else if (player1.hp > 0) {
+                msg = "¡JUGADOR 1 GANA!";
+                createExplosionEffect(player2.container.x, player2.container.y, 80);
+            } else {
+                msg = player2.isBot ? "¡EL BOT GANA!" : "¡JUGADOR 2 GANA!";
+                createExplosionEffect(player1.container.x, player1.container.y, 80);
+            }
 
             document.getElementById('winner-text').innerText = msg;
             document.getElementById('game-over').style.display = 'flex';
-            gameScene.scene.pause();
+            if (gameScene) {
+                gameScene.cameras.main.resetFX();
+                gameScene.scene.pause();
+            }
+        }
+
+        function checkPlayerPlayerCollision(time) {
+            if (!player1 || !player2) return;
+            const dist = Phaser.Math.Distance.Between(player1.container.x, player1.container.y, player2.container.x, player2.container.y);
+            if (dist < 40) {
+                // DEAL DAMAGE TO BOTH (Only if not invulnerable)
+                if (time > (gameScene.lastPlayerMeleeHit || 0)) {
+                    if (!player2.isInvulnerable) {
+                        player2.hp -= (player1.isBot ? 8 : 5);
+                        showFloatingDamage(player2.container.x, player2.container.y, (player1.isBot ? 8 : 5));
+                        flashPlayer(player2);
+                    }
+                    if (!player1.isInvulnerable) {
+                        player1.hp -= (player2.isBot ? 8 : 5);
+                        showFloatingDamage(player1.container.x, player1.container.y, (player2.isBot ? 8 : 5));
+                        flashPlayer(player1);
+                    }
+                    gameScene.lastPlayerMeleeHit = time + 800;
+                }
+
+                // KNOCKBACK (Elastic PUSH)
+                let angle = Phaser.Math.Angle.Between(player2.container.x, player2.container.y, player1.container.x, player1.container.y);
+                if (dist < 1) angle = Math.random() * Math.PI * 2;
+                const pushDist = (40 - dist) / 2 + 2;
+
+                player1.container.x += Math.cos(angle) * pushDist;
+                player1.container.y += Math.sin(angle) * pushDist;
+                player2.container.x -= Math.cos(angle) * pushDist;
+                player2.container.y -= Math.sin(angle) * pushDist;
+
+                // POST-PUSH: Resolve obstacle collisions
+                resolvePlayerObstacles(player1);
+                resolvePlayerObstacles(player2);
+
+                // Restrict to bounds
+                player1.container.x = Phaser.Math.Clamp(player1.container.x, 30, GAME_WIDTH - 30);
+                player1.container.y = Phaser.Math.Clamp(player1.container.y, 30, GAME_HEIGHT - 30);
+                player2.container.x = Phaser.Math.Clamp(player2.container.x, 30, GAME_WIDTH - 30);
+                player2.container.y = Phaser.Math.Clamp(player2.container.y, 30, GAME_HEIGHT - 30);
+            }
+        }
+
+        function resolvePlayerObstacles(p) {
+            const pRadius = 20;
+            const px = p.container.x;
+            const py = p.container.y;
+
+            for (const obs of obstacles) {
+                if (!obs || !obs.obj || !obs.obj.active) continue;
+
+                if (px + pRadius > obs.x - obs.w / 2 && px - pRadius < obs.x + obs.w / 2 &&
+                    py + pRadius > obs.y - obs.h / 2 && py - pRadius < obs.y + obs.h / 2) {
+
+                    // Inside - push out
+                    const dL = (px + pRadius) - (obs.x - obs.w / 2);
+                    const dR = (obs.x + obs.w / 2) - (px - pRadius);
+                    const dT = (py + pRadius) - (obs.y - obs.h / 2);
+                    const dB = (obs.y + obs.h / 2) - (py - pRadius);
+
+                    const min = Math.min(dL, dR, dT, dB);
+                    let pushX = 0, pushY = 0;
+                    if (min === dL) pushX = -dL;
+                    else if (min === dR) pushX = dR;
+                    else if (min === dT) pushY = -dT;
+                    else if (min === dB) pushY = dB;
+
+                    // Safety: if push puts out of bounds, push to center
+                    if (px + pushX < 30 || px + pushX > GAME_WIDTH - 30 ||
+                        py + pushY < 30 || py + pushY > GAME_HEIGHT - 30) {
+                        const angToCenter = Math.atan2(GAME_HEIGHT / 2 - py, GAME_WIDTH / 2 - px);
+                        p.container.x += Math.cos(angToCenter) * 10;
+                        p.container.y += Math.sin(angToCenter) * 10;
+                    } else {
+                        p.container.x += pushX;
+                        p.container.y += pushY;
+                    }
+                }
+            }
+        }
+
+        // JUICE FUNCTIONS
+        function triggerShake(intensity) {
+            if (gameScene) gameScene.cameras.main.shake(200, intensity);
+        }
+
+        function flashScreen(color, alpha) {
+            if (gameScene) gameScene.cameras.main.flash(200, ((color >> 16) & 0xFF), ((color >> 8) & 0xFF), (color & 0xFF), true, (cam, progress) => {
+                // Custom flash logic if needed, but default is fine usually. 
+                // Phaser flash fades out automatically.
+            });
+            // Force alpha override if needed? No, standard flash is good.
+        }
+
+        function showFloatingDamage(x, y, damage) {
+            if (!gameScene || damage <= 0) return;
+
+            const text = gameScene.add.text(x, y - 40, "-" + damage, {
+                fontFamily: 'Stardos Stencil',
+                fontSize: '18px', // Smaller font
+                color: '#ff0000',
+                stroke: '#000000',
+                strokeThickness: 1.5, // Thinner stroke
+                fontStyle: 'normal' // Not bold
+            }).setOrigin(0.5);
+
+            // Pop up animation
+            gameScene.tweens.add({
+                targets: text,
+                y: y - 140, // Rise a bit higher since it lasts longer
+                alpha: 0,
+                scale: 1.4, // Less aggressive scaling
+                duration: 3000, // 3 seconds
+                ease: 'Cubic.out',
+                onComplete: () => text.destroy()
+            });
         }
     </script>
 </body>
